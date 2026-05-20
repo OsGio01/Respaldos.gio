@@ -1,12 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Sistema de Respaldos Avanzado - VERSIÓN TERMINAL PORTABLE
-- Todas las funciones: respaldo general, extensiones, XAMPP, disco externo, red, etc.
-- Optimizado con paralelismo, scandir, hashes.
-- Rutas dinámicas: se adapta a la carpeta del ejecutable.
-"""
-
 import os
 import sys
 import shutil
@@ -23,9 +14,7 @@ from dataclasses import dataclass, asdict
 import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# ============================================================================
 # DETECCIÓN DE RUTA BASE (PARA EJECUTABLE PORTABLE)
-# ============================================================================
 def obtener_ruta_base():
     """Devuelve la carpeta donde está el ejecutable o el script."""
     if getattr(sys, 'frozen', False):
@@ -44,17 +33,13 @@ RUTA_CONFIG_DIR = os.path.join(RUTA_APP, "config")  # listas blanca/negra
 os.makedirs(RUTA_RESPALDOS, exist_ok=True)
 os.makedirs(RUTA_CONFIG_DIR, exist_ok=True)
 
-# ============================================================================
 # CONSTANTES DE RENDIMIENTO
-# ============================================================================
 MAX_WORKERS = min(32, (os.cpu_count() or 2) * 2)
 BUFFER_SIZE = 256 * 1024
 HASH_CHUNK_SIZE = 8192
 NETWORK_PORT = 56789
 
-# ============================================================================
 # UTILIDADES
-# ============================================================================
 def limpiar_terminal():
     os.system('cls' if platform.system() == "Windows" else 'clear')
 
@@ -69,9 +54,7 @@ def formatear_tamano(gb: float) -> str:
     else:
         return f"{gb*1024:.0f} MB"
 
-# ============================================================================
 # FILTRO DE RUTAS (LISTAS BLANCA/NEGRA)
-# ============================================================================
 class FiltroRutas:
     def __init__(self, config_dir=RUTA_CONFIG_DIR):
         self.config_dir = config_dir
@@ -154,9 +137,7 @@ def get_file_hash(filepath, quick=True):
     except:
         return ""
 
-# ============================================================================
 # BARRA DE PROGRESO Y COPIADO PARALELO
-# ============================================================================
 class ProgresoConsola:
     def __init__(self, total, descripcion="Progreso", ancho=50):
         self.total = total
@@ -227,9 +208,7 @@ def copia_paralela(archivos, destino_base, sobrescribir=False, max_workers=MAX_W
                 progreso.actualizar()
     return copiados, duplicados, errores, tam_total
 
-# ============================================================================
 # CLASES DE CONFIGURACIÓN Y ESTADO (con rutas portables)
-# ============================================================================
 @dataclass
 class EstadoRespaldo:
     id: str
@@ -331,9 +310,7 @@ class GestorEstados:
             return e
         return None
 
-# ============================================================================
 # FUNCIONES DE RESPALDO (con rutas portables)
-# ============================================================================
 def registrar_respaldo(ruta, tipo, detalles, config):
     if config.registrar_rutas:
         with open(RUTA_REGISTRO, "a", encoding="utf-8") as f:
@@ -423,8 +400,8 @@ def respaldo_general(config, gestor):
 def respaldo_extensiones(config, gestor):
     print("\n🔤 RESPALDO POR EXTENSIONES")
     extensiones_set = {".pdf",".doc",".docx",".xls",".xlsx",".ppt",".pptx",".txt",".rtf",
-                       ".jpg",".jpeg",".png",".gif",".mp3",".mp4",".py",".js",".html",".css",
-                       ".java",".cpp",".c",".m",".mm",".plist",".strings"}
+                        ".jpg",".jpeg",".png",".gif",".mp3",".mp4",".py",".js",".html",".css",
+                        ".java",".cpp",".c",".m",".mm",".plist",".strings"}
     archivos_por_ext = {}
     home = os.path.expanduser("~")
     print("🔍 Escaneando archivos...")
