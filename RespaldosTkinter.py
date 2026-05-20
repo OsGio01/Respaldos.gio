@@ -1,11 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Sistema de Respaldos Avanzado - Versión Final para Ejecutable
-- Modo claro/oscuro, interfaz moderna, todas las funciones.
-- Gestión de rutas para que funcione correctamente como .exe.
-"""
-
 import os
 import sys
 import shutil
@@ -24,9 +16,7 @@ from dataclasses import dataclass, asdict
 import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# ============================================================================
 # DETECCIÓN DE RUTA BASE PARA EJECUTABLE (¡CRÍTICO!)
-# ============================================================================
 def obtener_ruta_base():
     """Devuelve la carpeta donde está el ejecutable o el script."""
     if getattr(sys, 'frozen', False):
@@ -48,18 +38,13 @@ RUTA_CONFIG_DIR = os.path.join(RUTA_APP, "config")  # Para listas blanca/negra
 os.makedirs(RUTA_RESPALDOS, exist_ok=True)
 os.makedirs(RUTA_CONFIG_DIR, exist_ok=True)
 
-# ============================================================================
 # CONSTANTES DE RENDIMIENTO
-# ============================================================================
 MAX_WORKERS = min(32, (os.cpu_count() or 2) * 2)
 BUFFER_SIZE = 256 * 1024
 HASH_CHUNK_SIZE = 8192
 NETWORK_PORT = 56789
 
-# ============================================================================
 # CLASES DEL NÚCLEO (con rutas ajustadas)
-# ============================================================================
-
 @dataclass
 class EstadoRespaldo:
     id: str
@@ -323,10 +308,7 @@ def obtener_carpetas_usuario():
                     "Documents", "Music", "Pictures", "Videos", "Downloads", "Desktop"]
     return [os.path.join(home, c) for c in carpetas if os.path.exists(os.path.join(home, c))]
 
-# ============================================================================
 # INTERFAZ MODERNA CON TEMA CLARO/OSCURO
-# ============================================================================
-
 class Tema:
     claro = {
         "bg": "#f5f5f5",
@@ -426,7 +408,7 @@ class AppRespaldo:
         
         for idx, (texto, comando, color) in enumerate(botones):
             btn = tk.Button(botones_frame, text=texto, command=comando, bg=color, fg="white",
-                           font=("Segoe UI", 10), padx=10, pady=5, relief=tk.FLAT, cursor="hand2")
+                            font=("Segoe UI", 10), padx=10, pady=5, relief=tk.FLAT, cursor="hand2")
             btn.grid(row=idx//3, column=idx%3, padx=8, pady=8, sticky="ew")
             btn._color = color
         
@@ -441,7 +423,7 @@ class AppRespaldo:
         log_frame = ttk.LabelFrame(main_frame, text="Registro de eventos", padding="5")
         log_frame.pack(fill=tk.BOTH, expand=True, pady=10)
         self.log_text = scrolledtext.ScrolledText(log_frame, height=12, wrap=tk.WORD, state='disabled',
-                                                  font=("Consolas", 9), relief=tk.FLAT, borderwidth=0)
+                                                    font=("Consolas", 9), relief=tk.FLAT, borderwidth=0)
         self.log_text.pack(fill=tk.BOTH, expand=True)
         
         footer = ttk.Frame(main_frame)
@@ -583,8 +565,8 @@ class AppRespaldo:
     
     def _ejecutar_respaldo_extensiones(self, destino_base):
         extensiones_set = {".pdf",".doc",".docx",".xls",".xlsx",".ppt",".pptx",".txt",".rtf",
-                           ".jpg",".jpeg",".png",".gif",".mp3",".mp4",".py",".js",".html",".css",
-                           ".java",".cpp",".c",".m",".mm",".plist",".strings"}
+                            ".jpg",".jpeg",".png",".gif",".mp3",".mp4",".py",".js",".html",".css",
+                            ".java",".cpp",".c",".m",".mm",".plist",".strings"}
         archivos_por_ext = {}
         home = os.path.expanduser("~")
         self.log("🔍 Escaneando archivos por extensión...")
@@ -736,7 +718,7 @@ class AppRespaldo:
         var = tk.StringVar()
         for e in pausados:
             tk.Radiobutton(ventana, text=f"{e.tipo} - {e.origen[:50]} - {e.procesados}/{e.total_archivos}", variable=var, value=e.id,
-                          bg=self.tema["bg"], fg=self.tema["fg"], selectcolor=self.tema["bg"]).pack(anchor='w')
+                            bg=self.tema["bg"], fg=self.tema["fg"], selectcolor=self.tema["bg"]).pack(anchor='w')
         def aceptar():
             ventana.destroy()
         ttk.Button(ventana, text="Reanudar", command=aceptar).pack(pady=10)
@@ -883,7 +865,7 @@ class AppRespaldo:
         for nombre, _, tam in respaldos:
             tam_text = f"({tam/(1024**3):.2f} GB)" if tam > 1024**3 else f"({tam/(1024**2):.1f} MB)"
             tk.Radiobutton(ventana, text=f"{nombre} {tam_text}", variable=var, value=nombre,
-                          bg=self.tema["bg"], fg=self.tema["fg"], selectcolor=self.tema["bg"]).pack(anchor='w')
+                            bg=self.tema["bg"], fg=self.tema["fg"], selectcolor=self.tema["bg"]).pack(anchor='w')
         def eliminar():
             nombre = var.get()
             if not nombre:
@@ -971,9 +953,7 @@ class AppRespaldo:
         os.makedirs(carpeta, exist_ok=True)
         return carpeta
 
-# ============================================================================
 # INICIO
-# ============================================================================
 if __name__ == "__main__":
     root = tk.Tk()
     app = AppRespaldo(root)
