@@ -3,7 +3,7 @@
   "registrar_rutas": true,
   "mostrar_progreso": true,
   "nivel_compresion": 6,
-  "max_archivos_paralelos": 32,
+  "max_archivos_paralelos": 15,
   "tamano_buffer_mb": 8,
   "guardar_estado_respaldos": true,
   "ruta_base_respaldos": "f:\\Proyectitos Programas y +\\Respaldos.gio\\Respaldos",
