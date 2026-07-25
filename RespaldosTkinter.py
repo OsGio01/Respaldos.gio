@@ -9,12 +9,18 @@ import re
 import time
 import threading
 import socket
+import subprocess
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext, filedialog, simpledialog
 from typing import List, Tuple, Dict, Optional
 from dataclasses import dataclass, asdict
 import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+try:
+    import psutil
+except ImportError:
+    psutil = None
 
 # DETECCIÓN DE RUTA BASE PARA EJECUTABLE (¡CRÍTICO!)
 def obtener_ruta_base():
@@ -33,6 +39,8 @@ RUTA_CONFIG = os.path.join(RUTA_APP, "config.json")
 RUTA_ESTADOS = os.path.join(RUTA_APP, "estados_respaldo.json")
 RUTA_REGISTRO = os.path.join(RUTA_APP, "rutas_respaldo.txt")
 RUTA_CONFIG_DIR = os.path.join(RUTA_APP, "config")  # Para listas blanca/negra
+RUTA_NOMBRES_GENERADOS = os.path.join(RUTA_APP, "respaldos_generados.json")  # registro de respaldos creados por el programa
+RUTA_ULTIMO_RESPALDO = os.path.join(RUTA_APP, "ultimo_respaldo.txt")  # ruta persistente del último respaldo
 
 # Asegurar que existan las carpetas necesarias
 os.makedirs(RUTA_RESPALDOS, exist_ok=True)
@@ -76,6 +84,7 @@ class Configuracion:
     guardar_estado_respaldos: bool = True
     ruta_base_respaldos: str = RUTA_RESPALDOS
     tema_oscuro: bool = False
+    auto_ajustar_hilos: bool = True  # compartido con la versión terminal
     
     @classmethod
     def cargar(cls, ruta=None):
@@ -86,8 +95,12 @@ class Configuracion:
             try:
                 with open(ruta, 'r', encoding='utf-8') as f:
                     datos = json.load(f)
-                    return cls(**datos)
-            except:
+                    # Filtrar claves desconocidas (p.ej. campos que solo existen en la
+                    # versión terminal) para no perder el resto de la configuración
+                    # guardada si ambas versiones comparten el mismo config.json.
+                    filtros = {k: v for k, v in datos.items() if k in cls.__annotations__}
+                    return cls(**filtros)
+            except Exception:
                 pass
         return default
     
@@ -256,7 +269,7 @@ def copiar_archivo(args):
     except Exception as e:
         return (False, 0, str(e))
 
-def copia_paralela(archivos, destino_base, sobrescribir=False, max_workers=MAX_WORKERS, progreso_callback=None):
+def copia_paralela(archivos, destino_base, sobrescribir=False, max_workers=MAX_WORKERS, progreso_callback=None, monitor=None):
     hash_cache = {}
     tasks = [(origen, os.path.join(destino_base, rel), sobrescribir, hash_cache) for origen, rel, _ in archivos]
     copiados = duplicados = errores = tam_total = 0
@@ -264,17 +277,21 @@ def copia_paralela(archivos, destino_base, sobrescribir=False, max_workers=MAX_W
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(copiar_archivo, t): t for t in tasks}
         for future in as_completed(futures):
+            if monitor and monitor.delay > 0:
+                time.sleep(monitor.delay)
             ok, tam, msg = future.result()
+            bytes_delta = 0
             if ok:
                 if msg == "duplicado":
                     duplicados += 1
                 else:
                     copiados += 1
                     tam_total += tam
+                    bytes_delta = tam
             else:
                 errores += 1
             if progreso_callback:
-                progreso_callback(copiados + duplicados + errores, total)
+                progreso_callback(copiados + duplicados + errores, total, bytes_delta)
     return copiados, duplicados, errores, tam_total
 
 def comprimir_respaldo(carpeta, nivel=6):
@@ -295,6 +312,245 @@ def registrar_respaldo(ruta, tipo, detalles, config):
         with open(RUTA_REGISTRO, "a", encoding="utf-8") as f:
             f.write(f"{datetime.now().isoformat()}|{ruta}|{tipo}|{detalles}\n")
 
+
+def sanitizar_nombre(texto: str) -> str:
+    limpio = re.sub(r"[^A-Za-z0-9_-]", "_", texto.strip())
+    return limpio[:64] if limpio else "backup"
+
+
+def obtener_usuario_equipo() -> Tuple[str, str]:
+    usuario = os.environ.get("USERNAME") or os.environ.get("USER") or "usuario"
+    equipo = platform.node() or "equipo"
+    return sanitizar_nombre(usuario), sanitizar_nombre(equipo)
+
+
+def mensaje_error_amigable(e: Exception) -> str:
+    """Traduce excepciones técnicas a mensajes comprensibles para un usuario sin conocimientos técnicos."""
+    texto = str(e)
+    if isinstance(e, PermissionError) or "Permission denied" in texto or "Acceso denegado" in texto:
+        return ("No se pudo completar la operación porque no hay permisos suficientes para acceder a algunos "
+                "archivos o carpetas. Intenta ejecutar el programa como administrador o revisa los permisos.")
+    if isinstance(e, FileNotFoundError):
+        return ("No se pudo completar la operación porque una de las rutas ya no existe. Verifica que el disco, "
+                "USB o carpeta siga conectado y disponible.")
+    if (isinstance(e, OSError) and getattr(e, "errno", None) == 28) or "No space left" in texto or "espacio" in texto.lower():
+        return "No hay suficiente espacio en el disco de destino. Libera espacio o elige otra ubicación."
+    if isinstance(e, (ConnectionError, socket.error)):
+        return "Se perdió la conexión de red durante la transferencia. Verifica que ambos equipos sigan en la misma red."
+    return f"Ocurrió un problema inesperado ({texto}). El respaldo quedó pausado y puede reanudarse desde el menú."
+
+
+def _cargar_json_seguro(ruta, valor_default):
+    if os.path.exists(ruta):
+        try:
+            with open(ruta, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return valor_default
+
+
+def registrar_nombre_respaldo(nombre: str):
+    """Registra el nombre base (sin .zip) de un respaldo creado por el programa,
+    compartiendo el mismo registro que usa la versión de terminal."""
+    nombres = _cargar_json_seguro(RUTA_NOMBRES_GENERADOS, [])
+    if nombre not in nombres:
+        nombres.append(nombre)
+        try:
+            with open(RUTA_NOMBRES_GENERADOS, "w", encoding="utf-8") as f:
+                json.dump(nombres, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+
+
+def quitar_nombre_respaldo(nombre: str):
+    nombres = _cargar_json_seguro(RUTA_NOMBRES_GENERADOS, [])
+    if nombre in nombres:
+        nombres.remove(nombre)
+        try:
+            with open(RUTA_NOMBRES_GENERADOS, "w", encoding="utf-8") as f:
+                json.dump(nombres, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+
+
+def obtener_nombres_respaldo_generados():
+    return set(_cargar_json_seguro(RUTA_NOMBRES_GENERADOS, []))
+
+
+def guardar_ultima_ruta(carpeta_destino: str, tipo: str):
+    try:
+        with open(RUTA_ULTIMO_RESPALDO, "w", encoding="utf-8") as f:
+            f.write(f"Último respaldo: {carpeta_destino}\n")
+            f.write(f"Tipo: {tipo}\n")
+            f.write(f"Fecha: {datetime.now().isoformat()}\n")
+    except Exception:
+        pass
+
+
+def leer_ultima_ruta():
+    if os.path.exists(RUTA_ULTIMO_RESPALDO):
+        try:
+            with open(RUTA_ULTIMO_RESPALDO, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        except Exception:
+            return None
+    return None
+
+
+def formatear_bytes(bytes_val: Optional[float]) -> str:
+    if bytes_val is None:
+        return "N/A"
+    valor = float(bytes_val)
+    for unidad in ["B", "KB", "MB", "GB", "TB"]:
+        if valor < 1024 or unidad == "TB":
+            return f"{valor:.1f} {unidad}"
+        valor /= 1024
+    return f"{valor:.1f} TB"
+
+
+def calcular_hilos_optimos(config) -> int:
+    """Ajusta automáticamente el número de hilos según CPU/memoria disponibles
+    (paridad con la versión de terminal, antes solo disponible ahí)."""
+    max_threads = min(64, config.max_archivos_paralelos or MAX_WORKERS)
+    if not getattr(config, 'auto_ajustar_hilos', True) or not psutil:
+        return max_threads
+    try:
+        cpu_pct = psutil.cpu_percent(interval=0.2)
+        memoria = psutil.virtual_memory()
+        nucleos = psutil.cpu_count(logical=True) or (os.cpu_count() or 1)
+        base = max(1, int(nucleos * 0.8))
+        if cpu_pct > 70 or memoria.percent > 80:
+            valor = max(1, base // 2)
+        else:
+            valor = max(1, min(base, max_threads))
+        return min(max_threads, valor)
+    except Exception:
+        return max_threads
+
+
+def ajustar_prioridad_proceso(reducir=False):
+    if not psutil:
+        return
+    try:
+        proceso = psutil.Process(os.getpid())
+        if platform.system() == "Windows":
+            if reducir and hasattr(psutil, 'BELOW_NORMAL_PRIORITY_CLASS'):
+                proceso.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
+            elif not reducir and hasattr(psutil, 'NORMAL_PRIORITY_CLASS'):
+                proceso.nice(psutil.NORMAL_PRIORITY_CLASS)
+        else:
+            proceso.nice(10 if reducir else 0)
+    except Exception:
+        pass
+
+
+class MonitorRecursos(threading.Thread):
+    """Supervisa CPU/memoria durante el respaldo y reduce la prioridad del proceso
+    si detecta carga alta, igual que en la versión de terminal."""
+    def __init__(self, config):
+        super().__init__(daemon=True)
+        self.config = config
+        self._stop = threading.Event()
+        self.delay = 0.0
+        self.prioridad_reducida = False
+
+    def run(self):
+        if not psutil:
+            return
+        while not self._stop.is_set():
+            try:
+                cpu_pct = psutil.cpu_percent(interval=1)
+                mem = psutil.virtual_memory()
+                uso_alto = cpu_pct > 70 or mem.percent > 80
+                if uso_alto:
+                    self.delay = min(2.0, max(0.2, (cpu_pct - 50) / 30))
+                    if not self.prioridad_reducida:
+                        ajustar_prioridad_proceso(reducir=True)
+                        self.prioridad_reducida = True
+                else:
+                    self.delay = 0.0
+                    if self.prioridad_reducida:
+                        ajustar_prioridad_proceso(reducir=False)
+                        self.prioridad_reducida = False
+            except Exception:
+                pass
+            self._stop.wait(2)
+
+    def stop(self):
+        self._stop.set()
+        if self.prioridad_reducida:
+            ajustar_prioridad_proceso(reducir=False)
+
+
+def obtener_info_sistema() -> Dict[str, Optional[object]]:
+    usuario, equipo = obtener_usuario_equipo()
+    sistema = platform.system()
+    memoria_total = memoria_disponible = None
+    cpu_uso = None
+    cpu_logico = os.cpu_count() or 1
+    if psutil:
+        try:
+            memoria = psutil.virtual_memory()
+            memoria_total = memoria.total
+            memoria_disponible = memoria.available
+            cpu_uso = psutil.cpu_percent(interval=0.2)
+            cpu_logico = psutil.cpu_count(logical=True) or cpu_logico
+        except Exception:
+            pass
+    return {
+        "usuario": usuario, "equipo": equipo,
+        "sistema": f"{sistema} {platform.release()}",
+        "cpu_logico": cpu_logico, "cpu_uso": cpu_uso,
+        "memoria_total": memoria_total, "memoria_disponible": memoria_disponible,
+    }
+
+
+def detectar_dispositivos_moviles():
+    """Detecta dispositivos móviles conectados (Android/iOS), igual que en la versión terminal."""
+    dispositivos = []
+    sistema = platform.system()
+    if sistema == "Windows":
+        try:
+            import string, ctypes
+            for letra in string.ascii_uppercase:
+                ruta = f"{letra}:\\"
+                try:
+                    tipo = ctypes.windll.kernel32.GetDriveTypeW(ruta)
+                    if tipo == 2:
+                        dispositivos.append((f"Removable {letra}", ruta, "Windows"))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    else:
+        posibles = ["/Volumes"]
+        if sistema == "Linux":
+            posibles.append(os.path.join('/media', os.environ.get('USER', '')))
+            posibles.append(f"/run/user/{os.getuid()}/gvfs")
+        for base in posibles:
+            if os.path.exists(base):
+                for item in os.listdir(base):
+                    ruta = os.path.join(base, item)
+                    if os.path.ismount(ruta) or os.path.isdir(ruta):
+                        etiqueta = item
+                        if "iphone" in item.lower() or "ipad" in item.lower():
+                            etiqueta = f"Apple {item}"
+                        elif "android" in item.lower() or "mtp" in item.lower():
+                            etiqueta = f"Android {item}"
+                        dispositivos.append((etiqueta, ruta, sistema))
+    try:
+        resultado = subprocess.run(['adb', 'devices'], capture_output=True, text=True, timeout=5)
+        if resultado.returncode == 0:
+            lineas = [l.strip() for l in resultado.stdout.splitlines() if l.strip()]
+            dispositivos_adb = [l for l in lineas[1:] if 'device' in l and not l.startswith('*')]
+            if dispositivos_adb:
+                dispositivos.append(("Android ADB", "adb:/sdcard", "ADB"))
+    except Exception:
+        pass
+    return dispositivos
+
+
 def obtener_carpetas_usuario():
     sistema = platform.system()
     home = os.path.expanduser("~")
@@ -308,41 +564,93 @@ def obtener_carpetas_usuario():
                     "Documents", "Music", "Pictures", "Videos", "Downloads", "Desktop"]
     return [os.path.join(home, c) for c in carpetas if os.path.exists(os.path.join(home, c))]
 
+# TIPOGRAFÍA CONSISTENTE
+FUENTE_BASE = "Segoe UI"
+FUENTE_MONO = "Consolas"
+F_TITULO = (FUENTE_BASE, 19, "bold")
+F_SUBTITULO = (FUENTE_BASE, 10)
+F_SECCION = (FUENTE_BASE, 11, "bold")
+F_BOTON_ICONO = (FUENTE_BASE, 20)
+F_BOTON_TEXTO = (FUENTE_BASE, 9, "bold")
+F_CUERPO = (FUENTE_BASE, 9)
+F_LOG = (FUENTE_MONO, 9)
+
 # INTERFAZ MODERNA CON TEMA CLARO/OSCURO
 class Tema:
+    # Paleta clara: fondo azulado muy suave, acentos con un solo color primario
+    # (índigo) + colores semánticos (peligro/advertencia/info/neutral) en vez
+    # de un botón de cada color del arcoíris.
     claro = {
-        "bg": "#f5f5f5",
-        "fg": "#2c3e50",
+        "bg": "#eef1f7",
+        "fg": "#1f2937",
+        "fg_muted": "#6b7280",
         "frame_bg": "#ffffff",
-        "frame_fg": "#2c3e50",
-        "button_bg": "#3498db",
+        "frame_fg": "#1f2937",
+        "border": "#e2e6ee",
+        "title_fg": "#1f2937",
+
+        "accent_primary": "#4f5fee",
+        "accent_primary_hover": "#3f4ed6",
+        "accent_neutral": "#f1f3f8",
+        "accent_neutral_hover": "#e4e8f2",
+        "accent_neutral_fg": "#334155",
+        "accent_warning": "#f59e0b",
+        "accent_warning_hover": "#d98708",
+        "accent_info": "#0ea5a4",
+        "accent_info_hover": "#0c8988",
+        "accent_danger": "#e5484d",
+        "accent_danger_hover": "#cf3b40",
+        "accent_fg": "#ffffff",
+
+        "button_bg": "#4f5fee",
         "button_fg": "#ffffff",
-        "button_active_bg": "#2980b9",
-        "progress_bg": "#ecf0f1",
-        "progress_color": "#2ecc71",
-        "log_bg": "#ffffff",
-        "log_fg": "#2c3e50",
+        "button_active_bg": "#3f4ed6",
+        "progress_bg": "#e2e6ee",
+        "progress_color": "#4f5fee",
+        "log_bg": "#0f172a",
+        "log_fg": "#d7dee8",
+        "log_info": "#7dd3fc",
+        "log_success": "#4ade80",
+        "log_warn": "#fbbf24",
+        "log_error": "#f87171",
         "select_bg": "#ffffff",
-        "select_fg": "#2c3e50",
-        "title_fg": "#2c3e50",
-        "border": "#dcdde1"
+        "select_fg": "#1f2937",
     }
     oscuro = {
-        "bg": "#1e1e1e",
-        "fg": "#e0e0e0",
-        "frame_bg": "#2d2d2d",
-        "frame_fg": "#e0e0e0",
-        "button_bg": "#0f6bff",
-        "button_fg": "#ffffff",
-        "button_active_bg": "#0a5ad9",
-        "progress_bg": "#3c3c3c",
-        "progress_color": "#0f6bff",
-        "log_bg": "#252526",
-        "log_fg": "#d4d4d4",
-        "select_bg": "#2d2d2d",
-        "select_fg": "#e0e0e0",
+        "bg": "#12141c",
+        "fg": "#e6e9f0",
+        "fg_muted": "#9aa3b2",
+        "frame_bg": "#1b1e29",
+        "frame_fg": "#e6e9f0",
+        "border": "#2a2e3d",
         "title_fg": "#ffffff",
-        "border": "#3c3c3c"
+
+        "accent_primary": "#6d7bff",
+        "accent_primary_hover": "#5b69f0",
+        "accent_neutral": "#242837",
+        "accent_neutral_hover": "#2e3345",
+        "accent_neutral_fg": "#cbd2e1",
+        "accent_warning": "#f5a524",
+        "accent_warning_hover": "#d98f13",
+        "accent_info": "#22b8b0",
+        "accent_info_hover": "#1a9a93",
+        "accent_danger": "#f0555b",
+        "accent_danger_hover": "#d94048",
+        "accent_fg": "#ffffff",
+
+        "button_bg": "#6d7bff",
+        "button_fg": "#ffffff",
+        "button_active_bg": "#5b69f0",
+        "progress_bg": "#242837",
+        "progress_color": "#6d7bff",
+        "log_bg": "#0b0d13",
+        "log_fg": "#d7dee8",
+        "log_info": "#7dd3fc",
+        "log_success": "#4ade80",
+        "log_warn": "#fbbf24",
+        "log_error": "#f87171",
+        "select_bg": "#1b1e29",
+        "select_fg": "#e6e9f0",
     }
     
     @classmethod
@@ -352,13 +660,19 @@ class Tema:
         style = ttk.Style()
         style.theme_use('clam')
         style.configure("TFrame", background=tema["bg"])
-        style.configure("TLabel", background=tema["bg"], foreground=tema["fg"])
+        style.configure("Card.TFrame", background=tema["frame_bg"])
+        style.configure("TLabel", background=tema["bg"], foreground=tema["fg"], font=F_CUERPO)
+        style.configure("Muted.TLabel", background=tema["bg"], foreground=tema["fg_muted"], font=F_CUERPO)
         style.configure("TLabelframe", background=tema["bg"], foreground=tema["fg"], bordercolor=tema["border"])
-        style.configure("TLabelframe.Label", background=tema["bg"], foreground=tema["fg"])
-        style.configure("TButton", background=tema["button_bg"], foreground=tema["button_fg"], borderwidth=0, focusthickness=0)
-        style.map("TButton", background=[("active", tema["button_active_bg"])])
-        style.configure("TProgressbar", background=tema["progress_color"], troughcolor=tema["progress_bg"])
+        style.configure("TLabelframe.Label", background=tema["bg"], foreground=tema["fg"], font=F_SECCION)
+        style.configure("TButton", background=tema["accent_neutral"], foreground=tema["accent_neutral_fg"],
+                         borderwidth=0, focusthickness=0, font=F_CUERPO, padding=6)
+        style.map("TButton", background=[("active", tema["accent_neutral_hover"])])
+        style.configure("Progreso.Horizontal.TProgressbar", background=tema["progress_color"],
+                         troughcolor=tema["progress_bg"], borderwidth=0, thickness=16)
         style.configure("TEntry", fieldbackground=tema["select_bg"], foreground=tema["select_fg"])
+        style.configure("TCheckbutton", background=tema["bg"], foreground=tema["fg"], font=F_CUERPO)
+        style.configure("TScale", background=tema["bg"])
         return tema
 
 class AppRespaldo:
@@ -376,10 +690,17 @@ class AppRespaldo:
         self.progreso_actual = 0
         self.progreso_total = 0
         self.cancelar_proceso = False
+        self.estado_actual = None  # referencia al EstadoRespaldo en curso, para poder pausarlo si algo falla
+        self._inicio_tarea = None
         
         self.tema = Tema.aplicar(root, self.config)
         self._build_ui()
         self.actualizar_estado()
+        ultima = leer_ultima_ruta()
+        if ultima:
+            self.log(f"🕘 {ultima.splitlines()[0]}")
+        if not psutil:
+            self.log("ℹ️ psutil no está instalado: la gestión inteligente de recursos e info del sistema serán limitadas.", "INFO")
     
     def _build_ui(self):
         main_frame = ttk.Frame(self.root, padding="15")
@@ -399,6 +720,7 @@ class AppRespaldo:
             ("🔤 Respaldar por Extensiones", self.respaldo_extensiones, "#3498db"),
             ("💾 Recuperar Disco Externo", self.respaldo_disco_externo, "#e67e22"),
             ("🗄️ Respaldo XAMPP/MySQL", self.respaldo_xampp, "#9b59b6"),
+            ("📱 Respaldo Móvil", self.respaldo_movil, "#16a085"),
             ("🔄 Reanudar Respaldo", self.reanudar_respaldo, "#f39c12"),
             ("🌐 Modo Red Interna", self.modo_red, "#1abc9c"),
             ("🗑️ Eliminar Respaldo", self.eliminar_respaldo, "#e74c3c"),
@@ -464,7 +786,10 @@ class AppRespaldo:
     
     def iniciar_tarea_larga(self, target, args=()):
         self.cancelar_proceso = False
+        self.estado_actual = None
         self.progress_bar['value'] = 0
+        self._inicio_tarea = time.time()
+        self._bytes_copiados_tarea = 0
         self.label_progreso.config(text="⏳ Procesando...")
         self.log("Iniciando tarea...")
         thread = threading.Thread(target=self._ejecutar_con_progreso, args=(target, args))
@@ -475,18 +800,57 @@ class AppRespaldo:
         try:
             target(*args)
         except Exception as e:
-            self.log(f"❌ Error: {str(e)}", "ERROR")
-            messagebox.showerror("Error", str(e))
+            # Si había un respaldo con estado registrado, lo marcamos como pausado
+            # para que pueda reanudarse desde el menú, en vez de quedar huérfano.
+            if self.estado_actual:
+                self.gestor.pausar_respaldo(self.estado_actual.id, [], [])
+                self.log("⏸️ El respaldo quedó pausado. Podrás reanudarlo con 'Reanudar Respaldo'.", "WARN")
+            mensaje = mensaje_error_amigable(e)
+            self.log(f"❌ {mensaje}", "ERROR")
+            messagebox.showerror("Error", mensaje)
         finally:
             self.label_progreso.config(text="✅ Listo")
             self.progress_bar['value'] = 0
+            self.estado_actual = None
             self.actualizar_estado()
     
-    def actualizar_progreso(self, actual, total):
+    def _log_resumen_sistema(self):
+        info = obtener_info_sistema()
+        cpu_txt = f"{info['cpu_uso']:.1f}%" if info['cpu_uso'] is not None else "N/A"
+        ram_txt = (f"{formatear_bytes(info['memoria_disponible'])} libres de {formatear_bytes(info['memoria_total'])}"
+                   if info['memoria_total'] else "N/A")
+        self.log(f"💻 {info['equipo']} | {info['usuario']} | {info['sistema']} | CPU: {info['cpu_logico']} hilos ({cpu_txt}) | RAM: {ram_txt}")
+
+    def _copiar_con_recursos(self, archivos, destino):
+        """Copia los archivos usando el número de hilos óptimo según la carga actual
+        del equipo, y reduce la prioridad del proceso si detecta uso alto de CPU/RAM
+        (paridad con la gestión inteligente de recursos de la versión terminal)."""
+        hilos = calcular_hilos_optimos(self.config)
+        auto_txt = " (ajuste automático)" if self.config.auto_ajustar_hilos else ""
+        self.log(f"⚙️ Usando {hilos} hilos{auto_txt}")
+        monitor = MonitorRecursos(self.config) if psutil else None
+        if monitor:
+            monitor.start()
+        try:
+            return copia_paralela(archivos, destino, max_workers=hilos,
+                                   progreso_callback=self.actualizar_progreso, monitor=monitor)
+        finally:
+            if monitor:
+                monitor.stop()
+                monitor.join(timeout=2)
+
+    def actualizar_progreso(self, actual, total, bytes_delta=0):
+        self._bytes_copiados_tarea = getattr(self, "_bytes_copiados_tarea", 0) + bytes_delta
         if total > 0:
             valor = (actual / total) * 100
             self.progress_bar['value'] = valor
-            self.label_progreso.config(text=f"📊 Progreso: {actual}/{total} ({valor:.1f}%)")
+            elapsed = max(time.time() - (self._inicio_tarea or time.time()), 0.001)
+            velocidad = self._bytes_copiados_tarea / elapsed
+            eta_seg = (elapsed / actual) * (total - actual) if actual > 0 else 0
+            eta_str = f"{int(eta_seg//60)}m {int(eta_seg%60)}s" if eta_seg > 60 else f"{int(eta_seg)}s"
+            self.label_progreso.config(
+                text=f"📊 Progreso: {actual}/{total} ({valor:.1f}%) | {formatear_bytes(velocidad)}/s | ETA: {eta_str}"
+            )
             self.root.update_idletasks()
     
     # ========== Funciones de respaldo ==========
@@ -545,11 +909,14 @@ class AppRespaldo:
             self.log("No hay archivos para respaldar.")
             return
         estado = self.gestor.crear_estado(" + ".join(carpetas), carpeta_destino, "general", total) if self.config.guardar_estado_respaldos else None
+        self.estado_actual = estado
+        self._log_resumen_sistema()
         self.log(f"📦 Iniciando copia de {total} archivos...")
-        copiados, dup, err, tam = copia_paralela(archivos, carpeta_destino, max_workers=self.config.max_archivos_paralelos, progreso_callback=self.actualizar_progreso)
+        copiados, dup, err, tam = self._copiar_con_recursos(archivos, carpeta_destino)
         if estado:
             self.gestor.completar_respaldo(estado.id)
         registrar_respaldo(carpeta_destino, "general", f"{len(carpetas)} carpetas, {copiados} archivos", self.config)
+        guardar_ultima_ruta(carpeta_destino, "general")
         self.log(f"✅ Respaldo completado. Copiados: {copiados}, Duplicados: {dup}, Errores: {err}")
         if self.config.comprimir_automatico:
             self.log("🗜️ Comprimiendo...")
@@ -584,9 +951,15 @@ class AppRespaldo:
             for ruta, nombre, size in lista:
                 rel = os.path.join(f"Archivos_{ext[1:].upper()}", nombre)
                 archivos_a_copiar.append((ruta, rel, size))
+        estado = self.gestor.crear_estado(home, carpeta_destino, "extensiones", total_archivos) if self.config.guardar_estado_respaldos else None
+        self.estado_actual = estado
+        self._log_resumen_sistema()
         self.log(f"📦 Copiando {total_archivos} archivos...")
-        copiados, dup, err, tam = copia_paralela(archivos_a_copiar, carpeta_destino, max_workers=self.config.max_archivos_paralelos, progreso_callback=self.actualizar_progreso)
+        copiados, dup, err, tam = self._copiar_con_recursos(archivos_a_copiar, carpeta_destino)
+        if estado:
+            self.gestor.completar_respaldo(estado.id)
         registrar_respaldo(carpeta_destino, "extensiones", f"{len(archivos_por_ext)} extensiones, {copiados} archivos", self.config)
+        guardar_ultima_ruta(carpeta_destino, "extensiones")
         self.log(f"✅ Copiados: {copiados}, Duplicados: {dup}, Errores: {err}")
         if self.config.comprimir_automatico:
             zip_path = comprimir_respaldo(carpeta_destino, self.config.nivel_compresion)
@@ -647,9 +1020,15 @@ class AppRespaldo:
         if total == 0:
             self.log("No hay archivos recuperables en el disco.")
             return
+        estado = self.gestor.crear_estado(origen, carpeta_destino, "disco_externo", total) if self.config.guardar_estado_respaldos else None
+        self.estado_actual = estado
+        self._log_resumen_sistema()
         self.log(f"📦 Recuperando {total} archivos...")
-        copiados, dup, err, tam = copia_paralela(archivos, carpeta_destino, max_workers=self.config.max_archivos_paralelos, progreso_callback=self.actualizar_progreso)
+        copiados, dup, err, tam = self._copiar_con_recursos(archivos, carpeta_destino)
+        if estado:
+            self.gestor.completar_respaldo(estado.id)
         registrar_respaldo(carpeta_destino, "disco_externo", f"{copiados} archivos", self.config)
+        guardar_ultima_ruta(carpeta_destino, "disco_externo")
         self.log(f"✅ Recuperados: {copiados}, Duplicados: {dup}, Errores: {err}")
         if self.config.comprimir_automatico:
             zip_path = comprimir_respaldo(carpeta_destino, self.config.nivel_compresion)
@@ -697,14 +1076,89 @@ class AppRespaldo:
         if total == 0:
             self.log("No hay archivos para respaldar.")
             return
+        estado = self.gestor.crear_estado(" + ".join(n for n, _ in instalaciones), carpeta_destino, "xampp", total) if self.config.guardar_estado_respaldos else None
+        self.estado_actual = estado
+        self._log_resumen_sistema()
         self.log(f"📦 Respaldando {total} archivos...")
-        copiados, dup, err, tam = copia_paralela(archivos, carpeta_destino, max_workers=self.config.max_archivos_paralelos, progreso_callback=self.actualizar_progreso)
+        copiados, dup, err, tam = self._copiar_con_recursos(archivos, carpeta_destino)
+        if estado:
+            self.gestor.completar_respaldo(estado.id)
         registrar_respaldo(carpeta_destino, "xampp", f"{len(instalaciones)} instalaciones, {copiados} archivos", self.config)
+        guardar_ultima_ruta(carpeta_destino, "xampp")
         self.log(f"✅ Copiados: {copiados}, Errores: {err}")
         if self.config.comprimir_automatico:
             zip_path = comprimir_respaldo(carpeta_destino, self.config.nivel_compresion)
             self.log(f"✅ Comprimido: {zip_path}")
     
+    def respaldo_movil(self):
+        dispositivos = detectar_dispositivos_moviles()
+        if not dispositivos:
+            messagebox.showinfo("Sin dispositivos", "No se detectaron dispositivos móviles conectados.")
+            return
+        ventana = tk.Toplevel(self.root)
+        ventana.title("Seleccionar dispositivo móvil")
+        ventana.geometry("400x250")
+        ventana.configure(bg=self.tema["bg"])
+        tk.Label(ventana, text="Dispositivos disponibles:", bg=self.tema["bg"], fg=self.tema["fg"]).pack(pady=5)
+        var = tk.StringVar()
+        for nombre, ruta, tipo in dispositivos:
+            tk.Radiobutton(ventana, text=f"{nombre} ({tipo})", variable=var, value=ruta,
+                           bg=self.tema["bg"], fg=self.tema["fg"], selectcolor=self.tema["bg"]).pack(anchor='w')
+        def aceptar():
+            ventana.destroy()
+        ttk.Button(ventana, text="Aceptar", command=aceptar).pack(pady=10)
+        self.root.wait_window(ventana)
+        if not var.get():
+            return
+        origen = var.get()
+        destino = filedialog.askdirectory(title="Carpeta destino", initialdir=self.config.ruta_base_respaldos)
+        if not destino:
+            return
+        self.iniciar_tarea_larga(self._ejecutar_respaldo_movil, (origen, destino))
+
+    def _ejecutar_respaldo_movil(self, origen, destino_base):
+        carpeta_destino = self._crear_carpeta_respaldo(destino_base)
+        if origen.startswith("adb:"):
+            device_path = origen.split(':', 1)[1]
+            self.log(f"📱 Extrayendo vía ADB desde {device_path}...")
+            try:
+                subprocess.run(['adb', 'pull', device_path, carpeta_destino], check=True)
+            except subprocess.CalledProcessError as e:
+                self.log(f"❌ Error al usar adb: {e}", "ERROR")
+                return
+            registrar_respaldo(carpeta_destino, "movil_android", "Android ADB backup", self.config)
+            guardar_ultima_ruta(carpeta_destino, "movil_android")
+            self.log(f"✅ Respaldo ADB completado en {carpeta_destino}")
+            if self.config.comprimir_automatico:
+                zip_path = comprimir_respaldo(carpeta_destino, self.config.nivel_compresion)
+                self.log(f"✅ Comprimido: {zip_path}")
+            return
+        if not os.path.exists(origen):
+            self.log("La ruta del dispositivo no está disponible.")
+            return
+        archivos = []
+        self.log(f"🔍 Escaneando {origen}...")
+        for ruta, nombre, size in walk_fast(origen):
+            rel = os.path.relpath(ruta, origen)
+            archivos.append((ruta, rel, size))
+        total = len(archivos)
+        if total == 0:
+            self.log("No se encontraron archivos para respaldar.")
+            return
+        estado = self.gestor.crear_estado(origen, carpeta_destino, "movil", total) if self.config.guardar_estado_respaldos else None
+        self.estado_actual = estado
+        self._log_resumen_sistema()
+        self.log(f"📦 Copiando {total} archivos...")
+        copiados, dup, err, tam = self._copiar_con_recursos(archivos, carpeta_destino)
+        if estado:
+            self.gestor.completar_respaldo(estado.id)
+        registrar_respaldo(carpeta_destino, "movil", f"{copiados} archivos", self.config)
+        guardar_ultima_ruta(carpeta_destino, "movil")
+        self.log(f"✅ Copiados: {copiados}, Duplicados: {dup}, Errores: {err}")
+        if self.config.comprimir_automatico:
+            zip_path = comprimir_respaldo(carpeta_destino, self.config.nivel_compresion)
+            self.log(f"✅ Comprimido: {zip_path}")
+
     def reanudar_respaldo(self):
         pausados = self.gestor.obtener_pausados()
         if not pausados:
@@ -750,8 +1204,9 @@ class AppRespaldo:
             self.log("No hay archivos pendientes. Respaldo ya completado.")
             self.gestor.completar_respaldo(estado.id)
             return
+        self.estado_actual = estado
         self.log(f"🔄 Reanudando: {total} archivos pendientes...")
-        copiados, dup, err, tam = copia_paralela(archivos_pendientes, estado.destino, max_workers=self.config.max_archivos_paralelos, progreso_callback=self.actualizar_progreso)
+        copiados, dup, err, tam = self._copiar_con_recursos(archivos_pendientes, estado.destino)
         self.gestor.completar_respaldo(estado.id)
         self.log(f"✅ Reanudación completada. Copiados: {copiados}, Errores: {err}")
     
@@ -831,6 +1286,7 @@ class AppRespaldo:
                 self.actualizar_progreso(i+1, total)
             sock.close()
             registrar_respaldo(carpeta_destino, "red_general", f"{total} archivos", self.config)
+            guardar_ultima_ruta(carpeta_destino, "red_general")
             self.log(f"✅ Respaldo remoto completado en {carpeta_destino}")
             if self.config.comprimir_automatico:
                 zip_path = comprimir_respaldo(carpeta_destino, self.config.nivel_compresion)
@@ -839,14 +1295,15 @@ class AppRespaldo:
             self.log(f"❌ Error en cliente: {e}")
     
     def eliminar_respaldo(self):
-        patron = re.compile(r'^Respaldo_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}(\.zip)?$')
+        nombres_generados = obtener_nombres_respaldo_generados()
         base = self.config.ruta_base_respaldos
         if not os.path.exists(base):
             messagebox.showwarning("No existe", f"La carpeta {base} no existe.")
             return
         respaldos = []
         for item in os.listdir(base):
-            if patron.match(item):
+            nombre_base = item[:-4] if item.lower().endswith(".zip") else item
+            if nombre_base in nombres_generados:
                 full = os.path.join(base, item)
                 if os.path.isdir(full):
                     size = sum(os.path.getsize(os.path.join(root,f)) for root,_,fs in os.walk(full) for f in fs)
@@ -854,7 +1311,7 @@ class AppRespaldo:
                     size = os.path.getsize(full)
                 respaldos.append((item, full, size))
         if not respaldos:
-            messagebox.showinfo("Sin respaldos", "No hay respaldos generados por el programa.")
+            messagebox.showinfo("Sin respaldos", "No hay respaldos generados por el programa en esta ruta.")
             return
         ventana = tk.Toplevel(self.root)
         ventana.title("Eliminar Respaldo")
@@ -877,6 +1334,8 @@ class AppRespaldo:
                             shutil.rmtree(full)
                         else:
                             os.remove(full)
+                        nombre_base = nombre[:-4] if nombre.lower().endswith(".zip") else nombre
+                        quitar_nombre_respaldo(nombre_base)
                         self.log(f"✅ Eliminado: {nombre}")
                         with open(RUTA_REGISTRO, "r", encoding="utf-8") as f:
                             lines = f.readlines()
@@ -948,9 +1407,18 @@ class AppRespaldo:
         frame.grid_columnconfigure(1, weight=1)
     
     def _crear_carpeta_respaldo(self, base):
-        fecha = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        carpeta = os.path.join(base, f"Respaldo_{fecha}")
+        # Mismo esquema de nombres que la versión terminal (Usuario_Equipo_Fecha),
+        # para que ambas versiones identifiquen igual sus propios respaldos.
+        usuario, equipo = obtener_usuario_equipo()
+        fecha = datetime.now().strftime("%Y%m%d_%H%M%S")
+        nombre = sanitizar_nombre(f"{usuario}_{equipo}_{fecha}")
+        carpeta = os.path.join(base, nombre)
+        contador = 1
+        while os.path.exists(carpeta):
+            carpeta = os.path.join(base, f"{nombre}_{contador}")
+            contador += 1
         os.makedirs(carpeta, exist_ok=True)
+        registrar_nombre_respaldo(os.path.basename(carpeta))
         return carpeta
 
 # INICIO

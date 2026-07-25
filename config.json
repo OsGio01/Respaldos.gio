@@ -1,11 +1,12 @@
 {
-  "comprimir_automatico": true,
-  "registrar_rutas": true,
+  "comprimir_automatico": false,
+  "registrar_rutas": false,
   "mostrar_progreso": true,
   "nivel_compresion": 6,
-  "max_archivos_paralelos": 15,
+  "max_archivos_paralelos": 16,
   "tamano_buffer_mb": 8,
   "guardar_estado_respaldos": true,
-  "ruta_base_respaldos": "f:\\Proyectitos Programas y +\\Respaldos.gio\\Respaldos",
-  "tema_oscuro": true
+  "ruta_base_respaldos": "i:\\Proyectos\\Respaldos. gio\\Respaldos.gio-1\\Respaldos",
+  "tema_oscuro": true,
+  "auto_ajustar_hilos": true
 }
