@@ -241,14 +241,18 @@ comprimir_respaldo() {
 # -------------------------------
 mostrar_menu() {
     echo "====== MENÚ RESPALDOS ======"
-    estado=$($comprimir_activado && echo "Activado ✅" || echo "Desactivado ❌")
+    if $comprimir_activado; then
+        estado="${VERDE}Activado ✅${RESET}"
+    else
+        estado="${ROJO}Desactivado ❌${RESET}"
+    fi
     echo "1) Respaldo general"
     echo "2) Respaldo por extensiones"
     echo "3) Respaldar unidad externa (elige cual)"
     echo "4) Respaldo XAMPP"
-    echo "5) Eliminar respaldos anteriores (selección)"
-    echo "6) Comprimir último respaldo"
-    echo "7) Alternar compresión automática [$estado]"
+    echo "5) Eliminar respaldos anteriores"
+    echo "6) Comprimir ultimo respaldo"
+    echo -e "7) Alternar compresion automatica [$estado]"
     echo "8) Salir"
     echo "==========================="
 }
