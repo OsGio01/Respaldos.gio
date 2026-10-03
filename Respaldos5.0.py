@@ -295,7 +295,17 @@ def _validar_campo(nombre: str, valor, default):
         if nombre in ("comprimir_automatico", "registrar_rutas", "mostrar_progreso",
                         "guardar_estado_respaldos", "auto_ajustar_hilos", "tema_oscuro",
                         "red_usar_tls"):
-            return bool(valor)
+            if isinstance(valor, bool):
+                return valor
+            if isinstance(valor, (int, float)) and valor in (0, 1):
+                return bool(valor)
+            if isinstance(valor, str):
+                v = valor.strip().lower()
+                if v in ("true", "1", "sí", "si", "yes", "on"):
+                    return True
+                if v in ("false", "0", "no", "n", "off"):
+                    return False
+            return default
         if nombre == "nivel_compresion":
             return max(0, min(9, int(valor)))
         if nombre == "max_archivos_paralelos":
@@ -777,12 +787,8 @@ class CopiadorParalelo:
         try:
             try:
                 st = os.stat(destino)
-                origen_mtime = os.path.getmtime(origen)
-                if st.st_size == size:
-                    diff = abs(st.st_mtime - origen_mtime)
-                    reciente = (time.time() - origen_mtime) < 60
-                    if diff < 0.001 or (not reciente and diff < 2):
-                        return (rel, "duplicado", size, None)
+                if st.st_size == size and _sha256_archivo(destino) == _sha256_archivo(origen):
+                    return (rel, "duplicado", size, None)
             except FileNotFoundError:
                 pass
             buf = self._buffer()
@@ -1015,8 +1021,11 @@ class MotorRespaldo:
             print("La carpeta de ese respaldo ya no existe (¿se movió, se comprimió o se borró?). Se descarta el aviso.")
             self.gestor.completar(estado.id)
             return None
-        hechos = self.gestor.leer_hechos(estado.id)
-        pendientes = [it for it in self.gestor.leer_manifiesto(estado.id) if it[1] not in hechos]
+        # No se confía únicamente en el registro "hechos": puede haber sido
+        # interrumpido, alterado o el archivo de destino puede haber cambiado.
+        # Se vuelven a evaluar todos los elementos; _copiar_uno() valida el
+        # contenido mediante SHA-256 antes de marcarlo como duplicado.
+        pendientes = self.gestor.leer_manifiesto(estado.id)
         if not pendientes:
             print("No hay archivos pendientes. El respaldo ya estaba completo.")
             self.gestor.completar(estado.id)
@@ -1458,9 +1467,31 @@ def _recibir_exacto(sock: socket.socket, n: int) -> bytes:
 
 
 def _ruta_segura(carpeta: str, rel: str) -> Optional[str]:
-    base = os.path.abspath(carpeta)
-    destino = os.path.abspath(os.path.join(base, rel.replace("/", os.sep)))
-    return destino if destino.startswith(base + os.sep) else None
+    """Devuelve una ruta contenida físicamente dentro de `carpeta`.
+
+    Se usa realpath para impedir que un enlace simbólico dentro del destino
+    permita escapar hacia otra carpeta aunque el texto de la ruta sea seguro.
+    """
+    base = os.path.realpath(os.path.abspath(carpeta))
+    destino = os.path.realpath(os.path.abspath(os.path.join(base, rel.replace("/", os.sep))))
+    try:
+        if os.path.commonpath((base, destino)) != base:
+            return None
+    except ValueError:
+        return None
+    return destino
+
+
+def _sha256_archivo(ruta: str, buffer_size: int = 1024 * 1024) -> str:
+    """Calcula SHA-256 de un archivo sin cargarlo completo en memoria."""
+    h = hashlib.sha256()
+    with open(ruta, "rb", buffering=0) as f:
+        while True:
+            bloque = f.read(buffer_size)
+            if not bloque:
+                break
+            h.update(bloque)
+    return h.hexdigest()
 
 
 def _detectar_ip_local() -> Optional[str]:
@@ -1484,7 +1515,21 @@ def _clave_red_bytes(config: Configuracion) -> bytes:
     return hashlib.sha256(config.red_clave.encode("utf-8")).digest()
 
 
+def _binding_tls(sock: socket.socket) -> bytes:
+    """Obtiene material ligado a la sesión TLS para impedir relay/MITM.
+
+    Si no hay TLS, devuelve vacío y HMAC sigue autenticando la clave, aunque
+    el canal no queda cifrado.
+    """
+    try:
+        binding = sock.get_channel_binding()
+        return binding or b""
+    except (AttributeError, ValueError, OSError):
+        return b""
+
+
 def _handshake_servidor(conn: socket.socket, clave: bytes):
+    binding = _binding_tls(conn)
     for _ in range(MAX_INTENTOS_AUTH):
         nonce = secrets.token_bytes(32)
         try:
@@ -1492,7 +1537,7 @@ def _handshake_servidor(conn: socket.socket, clave: bytes):
             resp = _recibir_exacto(conn, 32)
         except (ConnectionError, OSError):
             raise ConnectionError("conexión cerrada durante autenticación")
-        esperado = hmac.new(clave, nonce, hashlib.sha256).digest()
+        esperado = hmac.new(clave, nonce + binding, hashlib.sha256).digest()
         if hmac.compare_digest(resp, esperado):
             conn.sendall(b"OK")
             return
@@ -1505,7 +1550,8 @@ def _handshake_servidor(conn: socket.socket, clave: bytes):
 
 def _handshake_cliente(sock: socket.socket, clave: bytes):
     nonce = _recibir_exacto(sock, 32)
-    resp = hmac.new(clave, nonce, hashlib.sha256).digest()
+    binding = _binding_tls(sock)
+    resp = hmac.new(clave, nonce + binding, hashlib.sha256).digest()
     sock.sendall(resp)
     r = _recibir_exacto(sock, 2)
     if r != b"OK":
