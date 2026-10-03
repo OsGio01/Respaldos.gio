@@ -35,7 +35,6 @@ VERSION_PROGRAMA = "5.0"
 
 
 def obtener_ruta_base() -> str:
-    """Carpeta del ejecutable (si está congelado) o del script."""
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
@@ -50,6 +49,7 @@ RUTA_REGISTRO = os.path.join(RUTA_APP, "rutas_respaldo.txt")
 RUTA_CONFIG_DIR = os.path.join(RUTA_APP, "config")
 RUTA_NOMBRES_GENERADOS = os.path.join(RUTA_APP, "respaldos_generados.json")
 RUTA_ULTIMO_RESPALDO = os.path.join(RUTA_APP, "ultimo_respaldo.txt")
+RUTA_PINNING = os.path.join(RUTA_APP, "servidores_conocidos.json")
 
 for _d in (RUTA_RESPALDOS, RUTA_CONFIG_DIR, RUTA_ESTADOS_DIR):
     os.makedirs(_d, exist_ok=True)
@@ -100,6 +100,41 @@ def pausa():
 
 def expandir_ruta(ruta: str) -> str:
     return os.path.normpath(os.path.expanduser(os.path.expandvars(ruta)))
+
+
+def _restringir_permisos(ruta: str):
+    """Deja el archivo accesible solo por el usuario actual.
+
+    POSIX: chmod 0600. Windows: quita herencia y otorga control total solo al usuario.
+    Silencioso si falla (por ejemplo, en FS de red que no soporta chmod).
+    """
+    if platform.system() == "Windows":
+        try:
+            usuario = os.environ.get("USERNAME", "")
+            if usuario:
+                subprocess.run(
+                    ["icacls", ruta, "/inheritance:r", "/grant:r", f"{usuario}:F"],
+                    capture_output=True, timeout=5,
+                )
+        except Exception:
+            pass
+        return
+    try:
+        os.chmod(ruta, 0o600)
+    except OSError:
+        pass
+
+
+def _sha256_archivo(ruta: str, buffer_size: int = 1024 * 1024) -> str:
+    """SHA-256 de un archivo sin cargarlo completo en memoria."""
+    h = hashlib.sha256()
+    with open(ruta, "rb", buffering=0) as f:
+        while True:
+            bloque = f.read(buffer_size)
+            if not bloque:
+                break
+            h.update(bloque)
+    return h.hexdigest()
 
 
 def formatear_bytes(valor: Optional[float]) -> str:
@@ -290,7 +325,6 @@ def leer_ultima_ruta() -> Optional[str]:
 
 
 def _validar_campo(nombre: str, valor, default):
-    """Corrige un valor de config si está fuera de rango o tiene tipo incorrecto."""
     try:
         if nombre in ("comprimir_automatico", "registrar_rutas", "mostrar_progreso",
                         "guardar_estado_respaldos", "auto_ajustar_hilos", "tema_oscuro",
@@ -336,7 +370,6 @@ class Configuracion:
     auto_ajustar_hilos: bool = True
     ruta_base_respaldos: str = RUTA_RESPALDOS
     tema_oscuro: bool = False
-    # --- Nuevos campos de seguridad ---
     red_clave: str = ""
     red_bind_ip: str = ""
     red_usar_tls: bool = True
@@ -358,6 +391,7 @@ class Configuracion:
 
     def guardar(self, ruta: str = RUTA_CONFIG):
         guardar_json(ruta, asdict(self))
+        _restringir_permisos(ruta)
 
 
 @dataclass
@@ -381,14 +415,24 @@ class EstadoRespaldo:
 
 
 class RegistroHechos:
+    """Bitácora de archivos copiados. Formato por línea: [rel, sha256_hex].
+
+    Se conserva compatibilidad con el formato antiguo (solo `rel`), pero las
+    entradas legadas se tratarán como "sin verificar" y se revalidarán en la
+    próxima reanudación (S-001/I-001).
+    """
+
     def __init__(self, ruta: str):
         self._f = open(ruta, "a", encoding="utf-8")
         self._lock = threading.Lock()
         self._n = 0
 
-    def marcar(self, rel: str):
+    def marcar(self, rel: str, sha256: Optional[str] = None):
         with self._lock:
-            self._f.write(json.dumps(rel) + "\n")
+            if sha256:
+                self._f.write(json.dumps([rel, sha256]) + "\n")
+            else:
+                self._f.write(json.dumps(rel) + "\n")
             self._n += 1
             if self._n % 200 == 0:
                 self._f.flush()
@@ -441,15 +485,21 @@ class GestorEstados:
                 except ValueError:
                     continue
 
-    def leer_hechos(self, id_res: str) -> Set[str]:
-        hechos = set()
+    def leer_hechos(self, id_res: str) -> Dict[str, Optional[str]]:
+        """Devuelve {rel: sha256_hex | None}. None indica entrada legada sin hash."""
+        hechos: Dict[str, Optional[str]] = {}
         try:
             with open(self.ruta_hechos(id_res), "r", encoding="utf-8") as f:
                 for linea in f:
                     try:
-                        hechos.add(json.loads(linea))
+                        dato = json.loads(linea)
                     except ValueError:
                         continue
+                    if isinstance(dato, list) and dato:
+                        sha = dato[1] if len(dato) > 1 and isinstance(dato[1], str) else None
+                        hechos[dato[0]] = sha
+                    elif isinstance(dato, str):
+                        hechos[dato] = None
         except OSError:
             pass
         return hechos
@@ -664,7 +714,6 @@ class Progreso:
 
 
 class MonitorRecursos(threading.Thread):
-    """Si el equipo va justo de CPU/RAM/disco, frena un poco la copia para no estorbar al usuario."""
     INTERVALO = 2.0
 
     def __init__(self, bytes_propios: Callable[[], int]):
@@ -776,24 +825,33 @@ class CopiadorParalelo:
             pass
 
     def _copiar_uno(self, item):
+        """Copia un archivo y devuelve (rel, estado, bytes, error, sha256_destino_o_None).
+
+        El SHA-256 se calcula siempre que se pueda (copia y duplicado) para que el
+        registro de hechos pueda usarse en la verificación de reanudación (I-001).
+        """
         origen, rel, size = item
         if self._cancelar.is_set():
-            return (rel, "cancelado", 0, None)
+            return (rel, "cancelado", 0, None, None)
         mon = self.monitor
         if mon is not None and mon.delay > 0 and self._cancelar.wait(mon.delay):
-            return (rel, "cancelado", 0, None)
+            return (rel, "cancelado", 0, None, None)
         destino = os.path.join(self.base, rel)
         tmp = destino + ".part"
         try:
             try:
                 st = os.stat(destino)
-                if st.st_size == size and _sha256_archivo(destino) == _sha256_archivo(origen):
-                    return (rel, "duplicado", size, None)
+                if st.st_size == size:
+                    sha_dest = _sha256_archivo(destino)
+                    sha_orig = _sha256_archivo(origen)
+                    if sha_dest == sha_orig:
+                        return (rel, "duplicado", size, None, sha_dest)
             except FileNotFoundError:
                 pass
             buf = self._buffer()
             vista = memoryview(buf)
             copiado = 0
+            hasher = hashlib.sha256()
             with open(origen, "rb", buffering=0) as src, open(tmp, "wb") as dst:
                 while True:
                     if self._cancelar.is_set():
@@ -801,7 +859,9 @@ class CopiadorParalelo:
                     n = src.readinto(buf)
                     if not n:
                         break
-                    dst.write(vista[:n])
+                    bloque = vista[:n]
+                    dst.write(bloque)
+                    hasher.update(bloque)
                     copiado += n
                     self.progreso.sumar_bytes(n)
             try:
@@ -809,27 +869,27 @@ class CopiadorParalelo:
             except OSError:
                 pass
             os.replace(tmp, destino)
-            return (rel, "ok", copiado, None)
+            return (rel, "ok", copiado, None, hasher.hexdigest())
         except _Cancelado:
             self._borrar(tmp)
-            return (rel, "cancelado", 0, None)
+            return (rel, "cancelado", 0, None, None)
         except Exception as e:
             self._borrar(tmp)
-            return (rel, "error", 0, e)
+            return (rel, "error", 0, e, None)
 
     def _procesar(self, resultado, res: ResultadoCopia):
-        rel, estado, tam, extra = resultado
+        rel, estado, tam, extra, sha = resultado
         if estado == "ok":
             res.copiados += 1
             res.bytes_copiados += tam
             self.progreso.archivo_listo()
             if self.hechos:
-                self.hechos.marcar(rel)
+                self.hechos.marcar(rel, sha)
         elif estado == "duplicado":
             res.duplicados += 1
             self.progreso.archivo_listo(bytes_saltados=tam)
             if self.hechos:
-                self.hechos.marcar(rel)
+                self.hechos.marcar(rel, sha)
         elif estado == "error":
             res.errores.append((rel, motivo_corto(extra)))
             self.progreso.archivo_listo()
@@ -838,6 +898,7 @@ class CopiadorParalelo:
                 self._cancelar.set()
 
     def copiar(self, items: List[Tuple[str, str, int]], hilos: int) -> ResultadoCopia:
+        items = list(items)
         res = ResultadoCopia()
         for d in {os.path.dirname(os.path.join(self.base, rel)) for _, rel, _ in items}:
             os.makedirs(d, exist_ok=True)
@@ -1021,26 +1082,47 @@ class MotorRespaldo:
             print("La carpeta de ese respaldo ya no existe (¿se movió, se comprimió o se borró?). Se descarta el aviso.")
             self.gestor.completar(estado.id)
             return None
-        # No se confía únicamente en el registro "hechos": puede haber sido
-        # interrumpido, alterado o el archivo de destino puede haber cambiado.
-        # Se vuelven a evaluar todos los elementos; _copiar_uno() valida el
-        # contenido mediante SHA-256 antes de marcarlo como duplicado.
-        pendientes = self.gestor.leer_manifiesto(estado.id)
+
+        # I-001: no se confía ciegamente en "hechos". Cada entrada marcada como
+        # hecha se revalida contra el destino: debe existir, tener el tamaño del
+        # manifiesto y su SHA-256 debe coincidir con el registrado al copiarla.
+        # Si algo falla, el archivo vuelve a la cola.
+        hechos = self.gestor.leer_hechos(estado.id)
+        pendientes: List[Tuple[str, str, int]] = []
+        revalidadas = 0
+        for origen, rel, size in self.gestor.leer_manifiesto(estado.id):
+            sha_esperado = hechos.get(rel)
+            if sha_esperado is None:
+                pendientes.append((origen, rel, size))
+                continue
+            destino_rel = os.path.join(estado.destino, rel)
+            try:
+                st = os.stat(destino_rel)
+                if st.st_size == size and _sha256_archivo(destino_rel) == sha_esperado:
+                    revalidadas += 1
+                    continue
+            except OSError:
+                pass
+            pendientes.append((origen, rel, size))
+
         if not pendientes:
-            print("No hay archivos pendientes. El respaldo ya estaba completo.")
+            print(f"No hay archivos pendientes. {revalidadas} archivo(s) verificados por SHA-256; "
+                    f"el respaldo ya estaba completo y correcto.")
             self.gestor.completar(estado.id)
             return None
-        print(f"Archivos pendientes: {len(pendientes)}")
+        print(f"Archivos pendientes: {len(pendientes)} (verificados OK: {revalidadas})")
         self.gestor.reanudar(estado.id)
         return self._correr(pendientes, estado.destino, estado.tipo, estado.origen, estado, "Reanudando",
                             total_archivos=estado.total_archivos)
 
     def _correr(self, items, carpeta, tipo, origen_txt, estado, descripcion, detalle="", omitidas=(),
                 total_archivos=None) -> Optional[ResultadoCopia]:
+        items = list(items)
         cfg = self.config
         total_bytes = sum(s for _, _, s in items)
         info = obtener_info_sistema()
-        imprimir_resumen_sistema(info, origen_txt if os.path.exists(origen_txt) else None, carpeta)
+        ruta_origen_valida = origen_txt if os.path.isdir(origen_txt) else None
+        imprimir_resumen_sistema(info, ruta_origen_valida, carpeta)
         try:
             libre = shutil.disk_usage(carpeta).free
             if libre < total_bytes:
@@ -1314,7 +1396,6 @@ class FuenteXampp(Fuente):
 
 
 def _adb_disponible(config: Optional[Configuracion] = None) -> Optional[str]:
-    """Devuelve la ruta absoluta verificada de adb, o None."""
     ruta = (config.adb_path if config and config.adb_path else "adb") or "adb"
     if os.path.isabs(ruta) and os.path.exists(ruta):
         return ruta
@@ -1325,7 +1406,6 @@ def detectar_dispositivos_moviles() -> List[Opcion]:
     dispositivos = []
     sistema = platform.system()
 
-    # 1) ADB (Android por USB con depuración activa)
     adb = _adb_disponible()
     if adb:
         try:
@@ -1337,7 +1417,6 @@ def detectar_dispositivos_moviles() -> List[Opcion]:
         except Exception:
             pass
 
-    # 2) Montajes de medios (macOS / Linux)
     if sistema != "Windows":
         posibles = ["/Volumes"]
         if sistema == "Linux":
@@ -1358,7 +1437,6 @@ def detectar_dispositivos_moviles() -> List[Opcion]:
                 except OSError:
                     pass
 
-    # 3) Windows: unidades removibles (2)
     if sistema == "Windows":
         try:
             import ctypes
@@ -1467,11 +1545,6 @@ def _recibir_exacto(sock: socket.socket, n: int) -> bytes:
 
 
 def _ruta_segura(carpeta: str, rel: str) -> Optional[str]:
-    """Devuelve una ruta contenida físicamente dentro de `carpeta`.
-
-    Se usa realpath para impedir que un enlace simbólico dentro del destino
-    permita escapar hacia otra carpeta aunque el texto de la ruta sea seguro.
-    """
     base = os.path.realpath(os.path.abspath(carpeta))
     destino = os.path.realpath(os.path.abspath(os.path.join(base, rel.replace("/", os.sep))))
     try:
@@ -1480,18 +1553,6 @@ def _ruta_segura(carpeta: str, rel: str) -> Optional[str]:
     except ValueError:
         return None
     return destino
-
-
-def _sha256_archivo(ruta: str, buffer_size: int = 1024 * 1024) -> str:
-    """Calcula SHA-256 de un archivo sin cargarlo completo en memoria."""
-    h = hashlib.sha256()
-    with open(ruta, "rb", buffering=0) as f:
-        while True:
-            bloque = f.read(buffer_size)
-            if not bloque:
-                break
-            h.update(bloque)
-    return h.hexdigest()
 
 
 def _detectar_ip_local() -> Optional[str]:
@@ -1516,13 +1577,11 @@ def _clave_red_bytes(config: Configuracion) -> bytes:
 
 
 def _binding_tls(sock: socket.socket) -> bytes:
-    """Obtiene material ligado a la sesión TLS para impedir relay/MITM.
-
-    Si no hay TLS, devuelve vacío y HMAC sigue autenticando la clave, aunque
-    el canal no queda cifrado.
-    """
+    """Material ligado a la sesión TLS. Con TLS 1.3 "tls-unique" devuelve None,
+    así que se usa "tls-server-end-point" (hash del certificado del servidor),
+    que sí está definido para ambas versiones."""
     try:
-        binding = sock.get_channel_binding()
+        binding = sock.get_channel_binding("tls-server-end-point")
         return binding or b""
     except (AttributeError, ValueError, OSError):
         return b""
@@ -1570,6 +1629,11 @@ def _intentar_tls_servidor() -> Optional[ssl.SSLContext]:
     cert_path = os.path.join(RUTA_APP, "servidor_red.crt")
     key_path = os.path.join(RUTA_APP, "servidor_red.key")
     if not (os.path.exists(cert_path) and os.path.exists(key_path)):
+        for p in (cert_path, key_path):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
         try:
             key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
             subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, u"Respaldos.Gio")])
@@ -1587,6 +1651,7 @@ def _intentar_tls_servidor() -> Optional[ssl.SSLContext]:
                     encryption_algorithm=serialization.NoEncryption()))
             with open(cert_path, "wb") as f:
                 f.write(cert.public_bytes(serialization.Encoding.PEM))
+            _restringir_permisos(key_path)
         except Exception:
             return None
     try:
@@ -1595,6 +1660,54 @@ def _intentar_tls_servidor() -> Optional[ssl.SSLContext]:
         return ctx
     except Exception:
         return None
+
+
+def _huella_cert(sock: socket.socket) -> Optional[str]:
+    """SHA-256 del certificado DER del servidor, o None si no se obtuvo."""
+    try:
+        der = sock.getpeercert(binary_form=True)
+        if not der:
+            return None
+        return hashlib.sha256(der).hexdigest()
+    except Exception:
+        return None
+
+
+def _verificar_pin(ip: str, huella: str) -> bool:
+    """TOFU: primera vez pide confirmación; si cambia, alerta y exige confirmación."""
+    datos = cargar_json(RUTA_PINNING, {})
+    if not isinstance(datos, dict):
+        datos = {}
+    conocida = datos.get(ip)
+    if conocida is None:
+        print(f"\nServidor nuevo: {ip}")
+        print("Huella del certificado (SHA-256):")
+        print(f"  {huella}")
+        resp = input("¿Confiar en este servidor y recordarlo? (s/N): ").strip().lower()
+        if resp not in ("s", "si", "sí", "y", "yes"):
+            return False
+        datos[ip] = huella
+        try:
+            guardar_json(RUTA_PINNING, datos)
+            _restringir_permisos(RUTA_PINNING)
+        except OSError:
+            pass
+        return True
+    if hmac.compare_digest(conocida, huella):
+        return True
+    print(f"\n¡ALERTA! La huella del certificado de {ip} CAMBIÓ.")
+    print(f"  Esperada: {conocida}")
+    print(f"  Recibida: {huella}")
+    print("Esto puede indicar un MITM, una reinstalación legítima o rotación de certificado.")
+    resp = input("¿Actualizar la huella guardada? (s/N): ").strip().lower()
+    if resp not in ("s", "si", "sí", "y", "yes"):
+        return False
+    datos[ip] = huella
+    try:
+        guardar_json(RUTA_PINNING, datos)
+    except OSError:
+        pass
+    return True
 
 
 def servidor_red(config: Configuracion):
@@ -1700,14 +1813,39 @@ def cliente_red(config: Configuracion, motor: MotorRespaldo):
     destino = pedir_destino(config)
     sock = socket.create_connection((ip, NETWORK_PORT), timeout=NETWORK_TIMEOUT_AUTH)
 
+    # S-002: si TLS está activado y falla, se aborta. Ya no hay degradación silenciosa.
     if config.red_usar_tls:
         try:
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
+            ctx.verify_mode = ssl.CERT_NONE  # el cert es autofirmado; la identidad se valida con pinning abajo
             sock = ctx.wrap_socket(sock, server_hostname=ip)
-        except ssl.SSLError:
-            print("Aviso: el servidor no tiene TLS habilitado. Continuando sin cifrado (HMAC activo).")
+        except ssl.SSLError as e:
+            print(f"Error TLS: {e}")
+            print("Se aborta la conexión. Desactiva 'red_usar_tls' en configuración si quieres ir en claro.")
+            try:
+                sock.close()
+            except OSError:
+                pass
+            return
+
+    # S-001: verificar la identidad del servidor mediante pinning del certificado.
+    if config.red_usar_tls:
+        huella = _huella_cert(sock)
+        if not huella:
+            print("No se pudo obtener el certificado del servidor. Se aborta.")
+            try:
+                sock.close()
+            except OSError:
+                pass
+            return
+        if not _verificar_pin(ip, huella):
+            print("Conexión abortada por verificación de identidad del servidor.")
+            try:
+                sock.close()
+            except OSError:
+                pass
+            return
 
     carpeta = None
     try:
@@ -1876,10 +2014,12 @@ def menu_configuracion(config: Configuracion):
         print("13. Guardar y volver")
         op = input("Opción: ").strip()
 
+        cambio = False
         if op in ("1", "2", "3", "4", "5"):
             campo = ("comprimir_automatico", "registrar_rutas", "mostrar_progreso",
                         "guardar_estado_respaldos", "auto_ajustar_hilos")[int(op) - 1]
             setattr(config, campo, not getattr(config, campo))
+            cambio = True
         elif op == "6":
             print("\nHILOS PARALELOS: cuántos archivos se copian a la vez.")
             print(f"   Recomendado: entre 4 y {MAX_WORKERS} (tu CPU tiene {os.cpu_count()} núcleos).")
@@ -1887,31 +2027,39 @@ def menu_configuracion(config: Configuracion):
             if entrada == "auto":
                 config.auto_ajustar_hilos = True
                 config.max_archivos_paralelos = min(64, MAX_WORKERS)
+                cambio = True
             elif entrada.isdigit():
                 config.max_archivos_paralelos = max(1, min(64, int(entrada)))
                 config.auto_ajustar_hilos = False
+                cambio = True
         elif op == "7":
             print("\nNIVEL DE COMPRESIÓN: 0 = sin compresión (rápido) | 6 = equilibrio | 9 = máxima (lento)")
             entrada = input("Nuevo nivel (0-9): ").strip()
             if entrada.isdigit() and 0 <= int(entrada) <= 9:
                 config.nivel_compresion = int(entrada)
+                cambio = True
         elif op == "8":
             nueva = input("Nueva ruta base: ").strip()
             if nueva:
                 config.ruta_base_respaldos = expandir_ruta(nueva)
+                cambio = True
         elif op == "9":
             nueva = input("Nueva clave de red (Enter para conservar): ").strip()
             if nueva:
                 config.red_clave = nueva
+                cambio = True
         elif op == "10":
             nueva = input("IP de bind (vacío = preguntar): ").strip()
             config.red_bind_ip = nueva
+            cambio = True
         elif op == "11":
             config.red_usar_tls = not config.red_usar_tls
+            cambio = True
         elif op == "12":
             nueva = input("Ruta a adb (ej. /usr/bin/adb o C:\\platform-tools\\adb.exe): ").strip()
             if nueva:
                 config.adb_path = nueva
+                cambio = True
         elif op == "13":
             config.guardar()
             print("Configuración guardada")
@@ -1920,7 +2068,12 @@ def menu_configuracion(config: Configuracion):
             print("Opción no válida")
             time.sleep(1)
             continue
-        config.guardar()
+
+        if cambio:
+            try:
+                config.guardar()
+            except OSError as e:
+                print(f"Aviso: no se pudo guardar config.json ({e})")
 
 
 # ======================================================================
@@ -1941,21 +2094,34 @@ def menu_principal():
                 ("7", "🌐", "Modo red interna"), ("8", "🗑️ ", "Eliminar respaldo seguro"),
                 ("9", "📜", "Ver registros"), ("10", "⚙️ ", "Configuración"), ("11", "🚪", "Salir")]
     while True:
-        limpiar_terminal()
-        print("\n" + "=" * 70)
-        print("       SISTEMA DE RESPALDOS AVANZADO - TERMINAL PORTABLE")
-        print("=" * 70)
-        print(f"{platform.system()} | Base: {config.ruta_base_respaldos}")
-        ultima = leer_ultima_ruta()
-        if ultima:
-            print(ultima.splitlines()[0])
-        n_pausados = len(gestor.pausados())
-        if n_pausados:
-            print(f"{icono('⏸️ ', '[PAUSA] ')}Respaldos interrumpidos: {n_pausados}")
-        print("\nMENÚ:")
-        for num, emoji, texto in entradas:
-            print(f"{num:>2}) {emoji + ' ' if UNICODE_SUPPORT else ''}{texto}")
-        op = input("Opción: ").strip()
+        try:
+            limpiar_terminal()
+            print("\n" + "=" * 70)
+            print("       SISTEMA DE RESPALDOS AVANZADO - TERMINAL PORTABLE")
+            print("=" * 70)
+            print(f"{platform.system()} | Base: {config.ruta_base_respaldos}")
+            ultima = leer_ultima_ruta()
+            if ultima:
+                print(ultima.splitlines()[0])
+            n_pausados = len(gestor.pausados())
+            if n_pausados:
+                print(f"{icono('⏸️ ', '[PAUSA] ')}Respaldos interrumpidos: {n_pausados}")
+            print("\nMENÚ:")
+            for num, emoji, texto in entradas:
+                print(f"{num:>2}) {emoji + ' ' if UNICODE_SUPPORT else ''}{texto}")
+            op = input("Opción: ").strip()
+        except KeyboardInterrupt:
+            print("\nHasta pronto")
+            try:
+                config.guardar()
+            except Exception:
+                pass
+            break
+        except Exception as e:
+            print(f"\n{icono('⚠️ ', '[ERROR] ')}{mensaje_error_amigable(e)}")
+            pausa()
+            continue
+
         try:
             if op in fuentes:
                 flujo_respaldo(fuentes[op], config, motor)
