@@ -1,12 +1,16 @@
 {
-  "comprimir_automatico": false,
-  "registrar_rutas": false,
+  "comprimir_automatico": true,
+  "registrar_rutas": true,
   "mostrar_progreso": true,
   "nivel_compresion": 6,
-  "max_archivos_paralelos": 16,
+  "max_archivos_paralelos": 32,
   "tamano_buffer_mb": 8,
   "guardar_estado_respaldos": true,
   "auto_ajustar_hilos": true,
   "ruta_base_respaldos": "i:\\Proyectos\\Respaldos. gio\\Respaldos.gio-1\\Respaldos",
-  "tema_oscuro": true
+  "tema_oscuro": false,
+  "red_clave": "",
+  "red_bind_ip": "",
+  "red_usar_tls": true,
+  "adb_path": "adb"
 }

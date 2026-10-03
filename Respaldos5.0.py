@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
 import errno
 import hashlib
+import hmac
 import json
 import os
 import platform
 import re
+import secrets
 import shutil
 import socket
+import ssl
 import struct
 import subprocess
 import sys
@@ -43,9 +45,9 @@ RUTA_APP = obtener_ruta_base()
 RUTA_RESPALDOS = os.path.join(RUTA_APP, "Respaldos")
 RUTA_CONFIG = os.path.join(RUTA_APP, "config.json")
 RUTA_ESTADOS = os.path.join(RUTA_APP, "estados_respaldo.json")
-RUTA_ESTADOS_DIR = os.path.join(RUTA_APP, "estados")  # manifiestos y avance de cada respaldo
+RUTA_ESTADOS_DIR = os.path.join(RUTA_APP, "estados")
 RUTA_REGISTRO = os.path.join(RUTA_APP, "rutas_respaldo.txt")
-RUTA_CONFIG_DIR = os.path.join(RUTA_APP, "config")  # listas blanca/negra
+RUTA_CONFIG_DIR = os.path.join(RUTA_APP, "config")
 RUTA_NOMBRES_GENERADOS = os.path.join(RUTA_APP, "respaldos_generados.json")
 RUTA_ULTIMO_RESPALDO = os.path.join(RUTA_APP, "ultimo_respaldo.txt")
 
@@ -53,7 +55,7 @@ for _d in (RUTA_RESPALDOS, RUTA_CONFIG_DIR, RUTA_ESTADOS_DIR):
     os.makedirs(_d, exist_ok=True)
 
 MAX_WORKERS = min(32, (os.cpu_count() or 2) * 2)
-BUFFER_SIZE = 1024 * 1024  # 1 MB por hilo
+BUFFER_SIZE = 1024 * 1024
 NETWORK_PORT = 56789
 MAGIA_RED = b"RGIO1"
 
@@ -62,7 +64,6 @@ EXTENSIONES_RESPALDO = {
     ".jpg", ".jpeg", ".png", ".gif", ".mp3", ".mp4", ".py", ".js", ".html", ".css",
     ".java", ".cpp", ".c", ".m", ".mm", ".plist", ".strings",
 }
-# Formatos que ya vienen comprimidos: en el zip se guardan sin recomprimir (ahorra CPU y tiempo)
 EXT_YA_COMPRIMIDAS = {
     ".zip", ".rar", ".7z", ".gz", ".bz2", ".xz", ".jpg", ".jpeg", ".png", ".gif", ".webp",
     ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".mp4", ".mkv", ".avi", ".mov", ".webm",
@@ -70,7 +71,7 @@ EXT_YA_COMPRIMIDAS = {
 }
 
 # ======================================================================
-# UTILIDADES (texto, formato, iconos)
+# UTILIDADES
 # ======================================================================
 UNICODE_SUPPORT = False
 try:
@@ -86,7 +87,11 @@ def icono(texto_emoji: str, texto_fallback: str) -> str:
 
 
 def limpiar_terminal():
-    os.system("cls" if platform.system() == "Windows" else "clear")
+    try:
+        sys.stdout.write("\033[2J\033[H")
+        sys.stdout.flush()
+    except Exception:
+        os.system("cls" if platform.system() == "Windows" else "clear")
 
 
 def pausa():
@@ -131,7 +136,6 @@ def obtener_usuario_equipo() -> Tuple[str, str]:
 
 
 def motivo_corto(e: BaseException) -> str:
-    """Motivo breve y entendible de por qué falló un archivo o carpeta."""
     if isinstance(e, PermissionError):
         return "sin permisos"
     if isinstance(e, FileNotFoundError):
@@ -146,7 +150,6 @@ def _es_disco_lleno(e: BaseException) -> bool:
 
 
 def mensaje_error_amigable(e: Exception) -> str:
-    """Traduce excepciones técnicas a mensajes para un usuario sin conocimientos técnicos."""
     if isinstance(e, PermissionError):
         return ("No se pudo completar la operación porque no hay permisos suficientes para acceder a algunos "
                 "archivos o carpetas. Intenta ejecutar el programa como administrador o revisa los permisos.")
@@ -198,7 +201,7 @@ def calcular_hilos_optimos(config) -> int:
     if not config.auto_ajustar_hilos or not psutil:
         return max_threads
     try:
-        cpu_pct = psutil.cpu_percent(interval=0.2)
+        cpu_pct = psutil.cpu_percent(interval=None)
         mem_pct = psutil.virtual_memory().percent
         nucleos = psutil.cpu_count(logical=True) or (os.cpu_count() or 1)
         base = max(1, int(nucleos * 0.8))
@@ -224,7 +227,7 @@ def ajustar_prioridad_proceso(reducir: bool):
 
 
 # ======================================================================
-# PERSISTENCIA (config, registros, estados)
+# PERSISTENCIA
 # ======================================================================
 def cargar_json(ruta: str, valor_default):
     try:
@@ -235,7 +238,6 @@ def cargar_json(ruta: str, valor_default):
 
 
 def guardar_json(ruta: str, datos):
-    """Escritura atómica: si el programa se cierra a la mitad, el archivo anterior queda intacto."""
     tmp = ruta + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(datos, f, indent=2, ensure_ascii=False)
@@ -243,8 +245,6 @@ def guardar_json(ruta: str, datos):
 
 
 class RegistroNombres:
-    """Nombres de respaldos creados por el programa (para que 'eliminar' solo toque esos)."""
-
     def __init__(self, ruta: str = RUTA_NOMBRES_GENERADOS):
         self.ruta = ruta
 
@@ -289,6 +289,31 @@ def leer_ultima_ruta() -> Optional[str]:
         return None
 
 
+def _validar_campo(nombre: str, valor, default):
+    """Corrige un valor de config si está fuera de rango o tiene tipo incorrecto."""
+    try:
+        if nombre in ("comprimir_automatico", "registrar_rutas", "mostrar_progreso",
+                        "guardar_estado_respaldos", "auto_ajustar_hilos", "tema_oscuro",
+                        "red_usar_tls"):
+            return bool(valor)
+        if nombre == "nivel_compresion":
+            return max(0, min(9, int(valor)))
+        if nombre == "max_archivos_paralelos":
+            return max(1, min(64, int(valor)))
+        if nombre == "tamano_buffer_mb":
+            return max(1, min(64, int(valor)))
+        if nombre == "ruta_base_respaldos":
+            s = str(valor).strip()
+            if not s:
+                return default
+            return os.path.normpath(os.path.expanduser(os.path.expandvars(s)))
+        if nombre in ("red_clave", "red_bind_ip", "adb_path"):
+            return str(valor).strip()
+        return valor
+    except (TypeError, ValueError):
+        return default
+
+
 @dataclass
 class Configuracion:
     comprimir_automatico: bool = True
@@ -296,21 +321,30 @@ class Configuracion:
     mostrar_progreso: bool = True
     nivel_compresion: int = 6
     max_archivos_paralelos: int = MAX_WORKERS
-    tamano_buffer_mb: int = 8  # se conserva por compatibilidad con config.json
+    tamano_buffer_mb: int = 8
     guardar_estado_respaldos: bool = True
     auto_ajustar_hilos: bool = True
     ruta_base_respaldos: str = RUTA_RESPALDOS
-    tema_oscuro: bool = False  # lo usa la versión GUI; se conserva para compartir config.json
+    tema_oscuro: bool = False
+    # --- Nuevos campos de seguridad ---
+    red_clave: str = ""
+    red_bind_ip: str = ""
+    red_usar_tls: bool = True
+    adb_path: str = "adb"
 
     @classmethod
     def cargar(cls, ruta: str = RUTA_CONFIG) -> "Configuracion":
         datos = cargar_json(ruta, None)
-        if isinstance(datos, dict):
-            try:
-                return cls(**{k: v for k, v in datos.items() if k in cls.__annotations__})
-            except TypeError:
-                pass
-        return cls()
+        inst = cls()
+        if not isinstance(datos, dict):
+            return inst
+        for k, v in datos.items():
+            if k in cls.__annotations__:
+                try:
+                    setattr(inst, k, _validar_campo(k, v, getattr(inst, k)))
+                except Exception:
+                    pass
+        return inst
 
     def guardar(self, ruta: str = RUTA_CONFIG):
         guardar_json(ruta, asdict(self))
@@ -324,7 +358,7 @@ class EstadoRespaldo:
     tipo: str
     total_archivos: int
     procesados: int = 0
-    archivos_completados: List[str] = None  # sin uso desde 5.0 (ahora se usa el manifiesto); se conserva por compatibilidad
+    archivos_completados: List[str] = None
     archivos_pendientes: List[str] = None
     fecha_inicio: str = ""
     fecha_pausa: str = ""
@@ -337,8 +371,6 @@ class EstadoRespaldo:
 
 
 class RegistroHechos:
-    """Bitácora de archivos ya copiados (una línea JSON por archivo). Es lo que permite reanudar."""
-
     def __init__(self, ruta: str):
         self._f = open(ruta, "a", encoding="utf-8")
         self._lock = threading.Lock()
@@ -350,6 +382,10 @@ class RegistroHechos:
             self._n += 1
             if self._n % 200 == 0:
                 self._f.flush()
+                try:
+                    os.fsync(self._f.fileno())
+                except OSError:
+                    pass
 
     def cerrar(self):
         with self._lock:
@@ -375,7 +411,6 @@ class GestorEstados:
     def guardar(self):
         guardar_json(self.archivo, {k: asdict(v) for k, v in self.estados.items()})
 
-    # --- archivos auxiliares de cada respaldo ---
     def ruta_manifiesto(self, id_res: str) -> str:
         return os.path.join(RUTA_ESTADOS_DIR, id_res + ".manifest.jsonl")
 
@@ -404,12 +439,11 @@ class GestorEstados:
                     try:
                         hechos.add(json.loads(linea))
                     except ValueError:
-                        continue  # última línea cortada por una interrupción
+                        continue
         except OSError:
             pass
         return hechos
 
-    # --- ciclo de vida ---
     def crear_estado(self, origen, destino, tipo, total_archivos, total_bytes) -> EstadoRespaldo:
         id_res = f"{tipo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hashlib.sha1(origen.encode('utf-8', 'replace')).hexdigest()[:8]}"
         estado = EstadoRespaldo(id=id_res, origen=origen, destino=destino, tipo=tipo,
@@ -451,8 +485,6 @@ class GestorEstados:
 # FILTRO DE RUTAS Y ESCANEO
 # ======================================================================
 class FiltroRutas:
-    """Listas blanca/negra. Se precalculan una sola vez para que cada consulta sea barata."""
-
     def __init__(self, config_dir: str = RUTA_CONFIG_DIR):
         self.config_dir = config_dir
         self.blacklist = self._cargar_lista("blacklist.json", self._blacklist_default())
@@ -465,8 +497,9 @@ class FiltroRutas:
             "$RECYCLE.BIN", "System Volume Information", ".Trash", ".Spotlight-V100",
             ".fseventsd", "Caches", "Logs", "AppData", "ProgramData", "Windows",
             "System32", "WinSxS", "Program Files", "Program Files (x86)",
-            "boot", "dev", "proc", "sys", "tmp", "var/tmp", "lost+found",
+            "boot", "dev", "proc", "sys", "lost+found",
             "Library/Caches", "Library/Logs", "Library/Preferences",
+            "var/tmp",
         ]
 
     @staticmethod
@@ -497,7 +530,7 @@ class FiltroRutas:
             if len(partes) == 1:
                 self._bl_nombres.add(partes[0])
             elif partes:
-                self._bl_rutas.append("/" + "/".join(partes))  # ej. "library/caches"
+                self._bl_rutas.append("/" + "/".join(partes))
 
     def en_whitelist(self, ruta: str) -> bool:
         r = os.path.normpath(ruta).lower()
@@ -524,14 +557,11 @@ filtro = FiltroRutas()
 
 
 class Escaner:
-    """Recorre un árbol de forma iterativa (sin recursión) aplicando el filtro."""
-
     def __init__(self, filtro_rutas: Optional[FiltroRutas] = None):
         self.filtro = filtro_rutas or filtro
-        self.omitidas: List[Tuple[str, str]] = []  # carpetas que no se pudieron leer
+        self.omitidas: List[Tuple[str, str]] = []
 
     def recorrer(self, raiz: str, extensiones: Optional[Set[str]] = None) -> Iterator[Tuple[str, str, int]]:
-        """Devuelve (ruta_completa, ruta_relativa_a_raiz, tamaño)."""
         f = self.filtro
         pila = [(raiz, "", f.en_whitelist(raiz))]
         while pila:
@@ -549,7 +579,7 @@ class Escaner:
                                 if not protegida and f.excluir_archivo(e.name):
                                     continue
                                 if extensiones is not None and os.path.splitext(e.name)[1].lower() not in extensiones:
-                                    continue  # se descarta antes de pedir el tamaño (ahorra una llamada al sistema)
+                                    continue
                                 yield (e.path, rel_dir + e.name, e.stat(follow_symlinks=False).st_size)
                         except OSError:
                             continue
@@ -561,8 +591,6 @@ class Escaner:
 # PROGRESO Y MONITOR DE RECURSOS
 # ======================================================================
 class Progreso:
-    """Barra de progreso por bytes (sin depender de tqdm). Los contadores se actualizan desde los hilos."""
-
     def __init__(self, total_archivos: int, total_bytes: int = 0, descripcion: str = "Progreso", silencioso: bool = False):
         self.total_archivos = total_archivos
         self.total_bytes = total_bytes
@@ -632,7 +660,7 @@ class MonitorRecursos(threading.Thread):
     def __init__(self, bytes_propios: Callable[[], int]):
         super().__init__(daemon=True)
         self._bytes_propios = bytes_propios
-        self._detener = threading.Event()  # (en 4.0 se llamaba _stop y pisaba un método interno de Thread)
+        self._detener = threading.Event()
         self.delay = 0.0
         self.prioridad_reducida = False
         self.carga_alta = False
@@ -661,8 +689,6 @@ class MonitorRecursos(threading.Thread):
                 ahora = time.monotonic()
                 dt = max(ahora - t_prev, 0.001)
                 cpu_total = psutil.cpu_percent(None)
-                # Solo cuenta la carga de OTROS programas: si el respaldo es lo único que usa el equipo,
-                # no tiene sentido frenarlo (en 4.0 se frenaba a sí mismo, sobre todo en equipos de pocos núcleos)
                 cpu_propio = (yo.cpu_percent(None) / nucleos) if yo else 0.0
                 cpu = max(0.0, cpu_total - cpu_propio)
                 mem = psutil.virtual_memory().percent
@@ -670,9 +696,10 @@ class MonitorRecursos(threading.Thread):
                 propios = self._bytes_propios()
                 io_ajeno = 0.0
                 if io is not None and io_prev is not None:
-                    # Cada byte copiado se lee y se escribe: se descuenta nuestra propia actividad
                     io_ajeno = max(0.0, (io - io_prev) / dt - 2 * (propios - propios_prev) / dt)
                 t_prev, io_prev, propios_prev = ahora, io, propios
+                if self._detener.is_set():
+                    break
                 if cpu > 70 or mem > 80 or io_ajeno > 50 * 1024 * 1024:
                     self.delay = min(2.0, max(0.2, (cpu - 50) / 30))
                     if not self.prioridad_reducida:
@@ -690,8 +717,13 @@ class MonitorRecursos(threading.Thread):
 
     def stop(self):
         self._detener.set()
+        try:
+            self.join(timeout=3)
+        except Exception:
+            pass
         if self.prioridad_reducida:
             ajustar_prioridad_proceso(reducir=False)
+            self.prioridad_reducida = False
 
 
 # ======================================================================
@@ -710,8 +742,6 @@ class ResultadoCopia:
 
 
 class CopiadorParalelo:
-    """Copia (origen, rel, size) hacia `base` con un pool de hilos y como máximo N tareas en vuelo."""
-
     def __init__(self, base: str, progreso: Progreso, monitor: Optional[MonitorRecursos] = None,
                     hechos: Optional[RegistroHechos] = None):
         self.base = base
@@ -743,12 +773,16 @@ class CopiadorParalelo:
         if mon is not None and mon.delay > 0 and self._cancelar.wait(mon.delay):
             return (rel, "cancelado", 0, None)
         destino = os.path.join(self.base, rel)
-        tmp = destino + ".part"  # se copia a .part y se renombra al final: un archivo a medias nunca parece completo
+        tmp = destino + ".part"
         try:
             try:
                 st = os.stat(destino)
-                if st.st_size == size and abs(st.st_mtime - os.path.getmtime(origen)) < 2:
-                    return (rel, "duplicado", size, None)
+                origen_mtime = os.path.getmtime(origen)
+                if st.st_size == size:
+                    diff = abs(st.st_mtime - origen_mtime)
+                    reciente = (time.time() - origen_mtime) < 60
+                    if diff < 0.001 or (not reciente and diff < 2):
+                        return (rel, "duplicado", size, None)
             except FileNotFoundError:
                 pass
             buf = self._buffer()
@@ -793,13 +827,12 @@ class CopiadorParalelo:
         elif estado == "error":
             res.errores.append((rel, motivo_corto(extra)))
             self.progreso.archivo_listo()
-            if _es_disco_lleno(extra):  # no tiene caso seguir intentando con el disco lleno
+            if _es_disco_lleno(extra):
                 self._fatal = extra
                 self._cancelar.set()
 
     def copiar(self, items: List[Tuple[str, str, int]], hilos: int) -> ResultadoCopia:
         res = ResultadoCopia()
-        # Crear cada carpeta destino una sola vez (en vez de una vez por archivo)
         for d in {os.path.dirname(os.path.join(self.base, rel)) for _, rel, _ in items}:
             os.makedirs(d, exist_ok=True)
         it = iter(items)
@@ -820,7 +853,7 @@ class CopiadorParalelo:
                     self._procesar(fut.result(), res)
                 self.progreso.mostrar()
         except BaseException:
-            self._cancelar.set()  # Ctrl+C o error: los hilos paran en el siguiente bloque de 1 MB
+            self._cancelar.set()
             raise
         finally:
             ex.shutdown(wait=True)
@@ -845,7 +878,7 @@ def comprimir_respaldo(carpeta: str, nivel: int = 6) -> Optional[str]:
     except Exception as e:
         print(f"{icono('❌', 'ERROR')} Error comprimiendo: {e}")
         try:
-            os.remove(zip_path)  # no dejar un zip a medias; la carpeta original sigue intacta
+            os.remove(zip_path)
         except OSError:
             pass
         return None
@@ -946,13 +979,13 @@ def contar_directorio(carpeta: str) -> Tuple[int, int]:
 
 
 # ======================================================================
-# MOTOR DE RESPALDO (el único lugar donde se copia)
+# MOTOR DE RESPALDO
 # ======================================================================
 @dataclass
 class Plan:
     tipo: str
     origen_txt: str
-    archivos: List[Tuple[str, str, int]]  # (ruta_origen, ruta_relativa_en_destino, tamaño)
+    archivos: List[Tuple[str, str, int]]
     detalle: str = ""
     omitidas: List[Tuple[str, str]] = field(default_factory=list)
 
@@ -1033,7 +1066,6 @@ class MotorRespaldo:
         finally:
             if monitor:
                 monitor.stop()
-                monitor.join(timeout=3)
             if hechos:
                 hechos.cerrar()
         duracion = time.time() - inicio
@@ -1057,7 +1089,6 @@ class MotorRespaldo:
 
     def finalizar(self, carpeta, tipo, origen_txt, total_archivos, tam, duracion, errores, detalle,
                     omitidas=(), info=None):
-        """Metadatos, registro y compresión. También lo usan los modos que no pasan por el copiador (red, ADB)."""
         cfg = self.config
         info = info or obtener_info_sistema()
         extra = {"errores": [{"archivo": r, "motivo": m} for r, m in errores[:200]],
@@ -1072,7 +1103,7 @@ class MotorRespaldo:
 
 
 # ======================================================================
-# FUENTES DE RESPALDO (estrategias): cada una decide QUÉ copiar
+# FUENTES DE RESPALDO
 # ======================================================================
 class Opcion(NamedTuple):
     texto: str
@@ -1091,7 +1122,7 @@ def pedir_seleccion(opciones: List[Opcion], multiple: bool) -> List[Opcion]:
         return []
     if multiple and s == "todos":
         return list(opciones)
-    indices = list(dict.fromkeys(int(x) - 1 for x in s.split() if x.isdigit()))
+    indices = list(dict.fromkeys(int(x) - 1 for x in s.split() if x.isascii() and x.isdigit()))
     elegidas = [opciones[i] for i in indices if 0 <= i < len(opciones)]
     return elegidas if multiple else elegidas[:1]
 
@@ -1177,8 +1208,6 @@ class FuenteExtensiones(Fuente):
             base, ext = os.path.splitext(nombre)
             ext = ext.lower()
             carpeta = f"Archivos_{ext[1:].upper()}"
-            # Si dos archivos de distintas carpetas se llaman igual, el segundo se guarda como nombre_1, nombre_2...
-            # (en 4.0 uno pisaba al otro y se perdía)
             final = nombre
             clave = (carpeta, nombre.lower())
             while (carpeta, final.lower()) in usados:
@@ -1200,14 +1229,16 @@ def detectar_unidades_externas() -> List[str]:
         for letra in string.ascii_uppercase:
             if mascara & 1:
                 d = letra + ":\\"
-                if d != "C:\\" and ctypes.windll.kernel32.GetDriveTypeW(d) in (2, 3):
+                try:
+                    tipo = ctypes.windll.kernel32.GetDriveTypeW(d)
+                except Exception:
+                    tipo = 0
+                if tipo == 2:  # DRIVE_REMOVABLE
                     unidades.append(d)
             mascara >>= 1
     else:
         usuario = os.environ.get("USER", "")
         for m in ("/Volumes", "/media", f"/media/{usuario}", f"/run/media/{usuario}", "/mnt"):
-            if usuario == "" and m.endswith("/"):
-                continue
             if os.path.isdir(m):
                 try:
                     for item in os.listdir(m):
@@ -1273,23 +1304,32 @@ class FuenteXampp(Fuente):
                     f"{len(seleccion)} instalaciones", escaner.omitidas)
 
 
+def _adb_disponible(config: Optional[Configuracion] = None) -> Optional[str]:
+    """Devuelve la ruta absoluta verificada de adb, o None."""
+    ruta = (config.adb_path if config and config.adb_path else "adb") or "adb"
+    if os.path.isabs(ruta) and os.path.exists(ruta):
+        return ruta
+    return shutil.which(ruta)
+
+
 def detectar_dispositivos_moviles() -> List[Opcion]:
     dispositivos = []
     sistema = platform.system()
-    if sistema == "Windows":
+
+    # 1) ADB (Android por USB con depuración activa)
+    adb = _adb_disponible()
+    if adb:
         try:
-            import ctypes
-            import string
-            for letra in string.ascii_uppercase:
-                ruta = f"{letra}:\\"
-                try:
-                    if ctypes.windll.kernel32.GetDriveTypeW(ruta) == 2:
-                        dispositivos.append(Opcion(f"Removable {letra} (Windows) -> {ruta}", ruta, "Windows"))
-                except Exception:
-                    pass
+            r = subprocess.run([adb, "devices"], capture_output=True, text=True, timeout=5)
+            if r.returncode == 0:
+                lineas = [l.strip() for l in r.stdout.splitlines() if l.strip()]
+                if [l for l in lineas[1:] if "device" in l and not l.startswith("*")]:
+                    dispositivos.append(Opcion(f"Android ADB ({adb}) -> adb:/sdcard", "adb:/sdcard", "ADB"))
         except Exception:
             pass
-    else:
+
+    # 2) Montajes de medios (macOS / Linux)
+    if sistema != "Windows":
         posibles = ["/Volumes"]
         if sistema == "Linux":
             posibles.append(os.path.join("/media", os.environ.get("USER", "")))
@@ -1308,14 +1348,22 @@ def detectar_dispositivos_moviles() -> List[Opcion]:
                             dispositivos.append(Opcion(f"{etiqueta} ({sistema}) -> {ruta}", ruta, sistema))
                 except OSError:
                     pass
-    try:
-        r = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=5)
-        if r.returncode == 0:
-            lineas = [l.strip() for l in r.stdout.splitlines() if l.strip()]
-            if [l for l in lineas[1:] if "device" in l and not l.startswith("*")]:
-                dispositivos.append(Opcion("Android ADB (ADB) -> adb:/sdcard", "adb:/sdcard", "ADB"))
-    except Exception:
-        pass
+
+    # 3) Windows: unidades removibles (2)
+    if sistema == "Windows":
+        try:
+            import ctypes
+            import string
+            for letra in string.ascii_uppercase:
+                ruta = f"{letra}:\\"
+                try:
+                    if ctypes.windll.kernel32.GetDriveTypeW(ruta) == 2:
+                        dispositivos.append(Opcion(f"Removable {letra} (Windows) -> {ruta}", ruta, "Windows"))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     return dispositivos
 
 
@@ -1340,10 +1388,14 @@ class FuenteMovil(Fuente):
         o = seleccion[0]
         if o.clave != "ADB":
             return super().ejecutar(seleccion, destino, motor)
+        adb = _adb_disponible()
+        if not adb:
+            print(f"{icono('❌', 'ERROR')} No se encontró 'adb' en el sistema. Configúralo en config.json (adb_path).")
+            return
         carpeta = crear_carpeta_respaldo(destino)
         inicio = time.time()
         try:
-            subprocess.run(["adb", "pull", o.ruta.split(":", 1)[1], carpeta], check=True)
+            subprocess.run([adb, "pull", o.ruta.split(":", 1)[1], carpeta], check=True)
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             print(f"{icono('❌', 'ERROR')} Error al usar adb: {e}")
             return
@@ -1387,12 +1439,12 @@ def menu_reanudar(gestor: GestorEstados, motor: MotorRespaldo):
 
 
 # ======================================================================
-# MODO RED (servidor / cliente)
-#   Protocolo: cliente envía MAGIA_RED. Servidor responde total (8 bytes) y luego, por cada archivo:
-#   [largo_nombre:2][tamaño:8][nombre utf-8][contenido]. Un largo_nombre = 0 marca el final.
+# MODO RED
 # ======================================================================
 _ENC_ARCHIVO = struct.Struct("!HQ")
 _ENC_TOTAL = struct.Struct("!Q")
+NETWORK_TIMEOUT_AUTH = 10
+MAX_INTENTOS_AUTH = 3
 
 
 def _recibir_exacto(sock: socket.socket, n: int) -> bytes:
@@ -1406,10 +1458,97 @@ def _recibir_exacto(sock: socket.socket, n: int) -> bytes:
 
 
 def _ruta_segura(carpeta: str, rel: str) -> Optional[str]:
-    """Evita que un servidor malicioso escriba fuera de la carpeta de respaldo (../../...)."""
     base = os.path.abspath(carpeta)
     destino = os.path.abspath(os.path.join(base, rel.replace("/", os.sep)))
     return destino if destino.startswith(base + os.sep) else None
+
+
+def _detectar_ip_local() -> Optional[str]:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return None
+
+
+def _clave_red_bytes(config: Configuracion) -> bytes:
+    if not config.red_clave:
+        config.red_clave = secrets.token_hex(32)
+        try:
+            config.guardar()
+        except OSError:
+            pass
+    return hashlib.sha256(config.red_clave.encode("utf-8")).digest()
+
+
+def _handshake_servidor(conn: socket.socket, clave: bytes):
+    for _ in range(MAX_INTENTOS_AUTH):
+        nonce = secrets.token_bytes(32)
+        try:
+            conn.sendall(nonce)
+            resp = _recibir_exacto(conn, 32)
+        except (ConnectionError, OSError):
+            raise ConnectionError("conexión cerrada durante autenticación")
+        esperado = hmac.new(clave, nonce, hashlib.sha256).digest()
+        if hmac.compare_digest(resp, esperado):
+            conn.sendall(b"OK")
+            return
+        try:
+            conn.sendall(b"NO")
+        except OSError:
+            pass
+    raise ConnectionError("demasiados intentos fallidos")
+
+
+def _handshake_cliente(sock: socket.socket, clave: bytes):
+    nonce = _recibir_exacto(sock, 32)
+    resp = hmac.new(clave, nonce, hashlib.sha256).digest()
+    sock.sendall(resp)
+    r = _recibir_exacto(sock, 2)
+    if r != b"OK":
+        raise ConnectionError("el servidor rechazó la autenticación (clave incorrecta)")
+
+
+def _intentar_tls_servidor() -> Optional[ssl.SSLContext]:
+    try:
+        from cryptography import x509
+        from cryptography.x509.oid import NameOID
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        import datetime as _dt
+    except ImportError:
+        return None
+    cert_path = os.path.join(RUTA_APP, "servidor_red.crt")
+    key_path = os.path.join(RUTA_APP, "servidor_red.key")
+    if not (os.path.exists(cert_path) and os.path.exists(key_path)):
+        try:
+            key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+            subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, u"Respaldos.Gio")])
+            cert = (x509.CertificateBuilder()
+                    .subject_name(subject).issuer_name(issuer)
+                    .public_key(key.public_key())
+                    .serial_number(x509.random_serial_number())
+                    .not_valid_before(_dt.datetime.utcnow())
+                    .not_valid_after(_dt.datetime.utcnow() + _dt.timedelta(days=3650))
+                    .sign(key, hashes.SHA256()))
+            with open(key_path, "wb") as f:
+                f.write(key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.TraditionalOpenSSL,
+                    encryption_algorithm=serialization.NoEncryption()))
+            with open(cert_path, "wb") as f:
+                f.write(cert.public_bytes(serialization.Encoding.PEM))
+        except Exception:
+            return None
+    try:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(cert_path, key_path)
+        return ctx
+    except Exception:
+        return None
 
 
 def servidor_red(config: Configuracion):
@@ -1422,18 +1561,58 @@ def servidor_red(config: Configuracion):
         for ruta, rel, size in escaner.recorrer(c):
             archivos.append((ruta, base + "/" + rel.replace(os.sep, "/"), size))
     print(f"{len(archivos)} archivos listos para enviar.")
+
+    clave = _clave_red_bytes(config)
+    print(f"Clave de red (compártela con el cliente): {config.red_clave}")
+
+    bind_ip = config.red_bind_ip or ""
+    if not bind_ip:
+        ip_local = _detectar_ip_local()
+        sugerida = ip_local or "0.0.0.0"
+        entrada = input(f"IP a exponer [Enter = {sugerida}]: ").strip()
+        bind_ip = entrada or sugerida
+    if bind_ip == "0.0.0.0":
+        resp = input("Vas a exponer el servidor en TODAS las interfaces. ¿Continuar? (s/N): ").strip().lower()
+        if resp not in ("s", "si", "sí", "y", "yes"):
+            ip_local = _detectar_ip_local()
+            if ip_local:
+                print(f"Usando IP local: {ip_local}")
+                bind_ip = ip_local
+            else:
+                print("Cancelado.")
+                return
+
+    tls_ctx = _intentar_tls_servidor() if config.red_usar_tls else None
+    if config.red_usar_tls and tls_ctx is None:
+        print("Aviso: TLS no disponible (falta 'cryptography' o fallo al generar cert).")
+        print("El HMAC evita accesos no autorizados, pero el tráfico viaja en claro.")
+        if input("¿Continuar sin TLS? (s/N): ").strip().lower() not in ("s", "si", "sí", "y", "yes"):
+            return
+
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
-        srv.bind(("0.0.0.0", NETWORK_PORT))
+        srv.bind((bind_ip, NETWORK_PORT))
         srv.listen(1)
-        print(f"Esperando cliente en el puerto {NETWORK_PORT}...")
+        print(f"Esperando cliente en {bind_ip}:{NETWORK_PORT}...")
         conn, addr = srv.accept()
         with conn:
+            if tls_ctx is not None:
+                try:
+                    conn = tls_ctx.wrap_socket(conn, server_side=True)
+                except ssl.SSLError as e:
+                    print(f"Error TLS: {e}")
+                    return
             print(f"Cliente conectado desde {addr[0]}")
             if _recibir_exacto(conn, len(MAGIA_RED)) != MAGIA_RED:
                 print("El cliente no usa la misma versión del protocolo. Actualiza ambos equipos.")
                 return
+            try:
+                _handshake_servidor(conn, clave)
+            except ConnectionError as e:
+                print(f"Autenticación fallida: {e}")
+                return
+            print("Cliente autenticado.")
             conn.sendall(_ENC_TOTAL.pack(len(archivos)))
             progreso = Progreso(len(archivos), sum(s for _, _, s in archivos), "Enviando",
                                 silencioso=not config.mostrar_progreso)
@@ -1442,7 +1621,7 @@ def servidor_red(config: Configuracion):
                     f = open(ruta, "rb")
                 except OSError:
                     progreso.archivo_listo()
-                    continue  # archivo bloqueado o desaparecido: se omite
+                    continue
                 with f:
                     real = os.fstat(f.fileno()).st_size
                     nombre = rel.encode("utf-8")
@@ -1464,12 +1643,31 @@ def cliente_red(config: Configuracion, motor: MotorRespaldo):
     ip = input("IP del servidor: ").strip()
     if not ip:
         return
+    clave_txt = input(f"Clave de red (Enter = usar la guardada: {config.red_clave or 'ninguna'}): ").strip()
+    if not clave_txt:
+        clave_txt = config.red_clave
+    if not clave_txt:
+        print("Se requiere la clave de red para autenticarse.")
+        return
+    clave = hashlib.sha256(clave_txt.encode("utf-8")).digest()
+
     destino = pedir_destino(config)
-    sock = socket.create_connection((ip, NETWORK_PORT), timeout=10)
+    sock = socket.create_connection((ip, NETWORK_PORT), timeout=NETWORK_TIMEOUT_AUTH)
+
+    if config.red_usar_tls:
+        try:
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            sock = ctx.wrap_socket(sock, server_hostname=ip)
+        except ssl.SSLError:
+            print("Aviso: el servidor no tiene TLS habilitado. Continuando sin cifrado (HMAC activo).")
+
     carpeta = None
     try:
         sock.settimeout(120)
         sock.sendall(MAGIA_RED)
+        _handshake_cliente(sock, clave)
         total = _ENC_TOTAL.unpack(_recibir_exacto(sock, _ENC_TOTAL.size))[0]
         print(f"Recibiendo {total} archivos...")
         carpeta = crear_carpeta_respaldo(destino)
@@ -1511,7 +1709,8 @@ def cliente_red(config: Configuracion, motor: MotorRespaldo):
             progreso.archivo_listo()
             progreso.mostrar()
         progreso.cerrar()
-        motor.finalizar(carpeta, "red_general", ip, recibidos, tam_total, time.time() - inicio, [], f"{recibidos} archivos")
+        motor.finalizar(carpeta, "red_general", ip, recibidos, tam_total, time.time() - inicio,
+                        [], f"{recibidos} archivos")
         print(f"{icono('✅', 'OK')} Respaldo remoto completado en {carpeta}")
     finally:
         sock.close()
@@ -1521,14 +1720,16 @@ def modo_red(config: Configuracion, motor: MotorRespaldo):
     print(f"\n{icono('🌐', '[RED]')} MODO RED")
     print("1. Actuar como SERVIDOR")
     print("2. Actuar como CLIENTE")
+    print("3. Cancelar")
     op = input("Selecciona: ").strip()
     if op == "1":
         servidor_red(config)
     elif op == "2":
         cliente_red(config, motor)
+    elif op == "3":
+        return
     else:
         print("Opción inválida")
-        return
     pausa()
 
 
@@ -1578,7 +1779,7 @@ def eliminar_respaldo(config: Configuracion):
     registro_nombres.quitar(_quitar_zip(nombre))
     print(f"{icono('✅', 'OK')} Eliminado: {nombre}")
     if os.path.exists(RUTA_REGISTRO):
-        sin_zip = _quitar_zip(full)  # el registro guarda la ruta sin .zip
+        sin_zip = _quitar_zip(full)
         with open(RUTA_REGISTRO, "r", encoding="utf-8") as f:
             lineas = f.readlines()
         with open(RUTA_REGISTRO, "w", encoding="utf-8") as f:
@@ -1614,16 +1815,21 @@ def menu_configuracion(config: Configuracion):
     while True:
         limpiar_terminal()
         print(f"\n{icono('⚙️ ', '')}CONFIGURACIÓN")
-        print(f"1. Compresión automática: {_onoff(config.comprimir_automatico)}")
-        print(f"2. Registrar rutas en .txt: {_onoff(config.registrar_rutas)}")
-        print(f"3. Barra de progreso: {_onoff(config.mostrar_progreso)}")
-        print(f"4. Guardar estado de respaldos: {_onoff(config.guardar_estado_respaldos)}")
-        print(f"5. Ajuste automático de hilos: {_onoff(config.auto_ajustar_hilos)}")
-        print(f"6. Hilos paralelos: {config.max_archivos_paralelos} ({'Auto' if config.auto_ajustar_hilos else 'Manual'})")
-        print(f"7. Nivel compresión (0-9): {config.nivel_compresion}")
-        print(f"8. Ruta base respaldos: {config.ruta_base_respaldos}")
-        print("9. Guardar y volver")
+        print(f" 1. Compresión automática: {_onoff(config.comprimir_automatico)}")
+        print(f" 2. Registrar rutas en .txt: {_onoff(config.registrar_rutas)}")
+        print(f" 3. Barra de progreso: {_onoff(config.mostrar_progreso)}")
+        print(f" 4. Guardar estado de respaldos: {_onoff(config.guardar_estado_respaldos)}")
+        print(f" 5. Ajuste automático de hilos: {_onoff(config.auto_ajustar_hilos)}")
+        print(f" 6. Hilos paralelos: {config.max_archivos_paralelos} ({'Auto' if config.auto_ajustar_hilos else 'Manual'})")
+        print(f" 7. Nivel compresión (0-9): {config.nivel_compresion}")
+        print(f" 8. Ruta base respaldos: {config.ruta_base_respaldos}")
+        print(f" 9. Clave de red (HMAC): {'(configurada)' if config.red_clave else '(sin configurar)'}")
+        print(f"10. Bind del servidor red: {config.red_bind_ip or '(preguntar)'}")
+        print(f"11. TLS en modo red: {_onoff(config.red_usar_tls)}")
+        print(f"12. Ruta de adb: {config.adb_path}")
+        print("13. Guardar y volver")
         op = input("Opción: ").strip()
+
         if op in ("1", "2", "3", "4", "5"):
             campo = ("comprimir_automatico", "registrar_rutas", "mostrar_progreso",
                         "guardar_estado_respaldos", "auto_ajustar_hilos")[int(op) - 1]
@@ -1648,9 +1854,26 @@ def menu_configuracion(config: Configuracion):
             if nueva:
                 config.ruta_base_respaldos = expandir_ruta(nueva)
         elif op == "9":
+            nueva = input("Nueva clave de red (Enter para conservar): ").strip()
+            if nueva:
+                config.red_clave = nueva
+        elif op == "10":
+            nueva = input("IP de bind (vacío = preguntar): ").strip()
+            config.red_bind_ip = nueva
+        elif op == "11":
+            config.red_usar_tls = not config.red_usar_tls
+        elif op == "12":
+            nueva = input("Ruta a adb (ej. /usr/bin/adb o C:\\platform-tools\\adb.exe): ").strip()
+            if nueva:
+                config.adb_path = nueva
+        elif op == "13":
             config.guardar()
             print("Configuración guardada")
             break
+        else:
+            print("Opción no válida")
+            time.sleep(1)
+            continue
         config.guardar()
 
 
