@@ -6,7 +6,7 @@
   "max_archivos_paralelos": 16,
   "tamano_buffer_mb": 8,
   "guardar_estado_respaldos": true,
+  "auto_ajustar_hilos": true,
   "ruta_base_respaldos": "i:\\Proyectos\\Respaldos. gio\\Respaldos.gio-1\\Respaldos",
-  "tema_oscuro": true,
-  "auto_ajustar_hilos": true
+  "tema_oscuro": true
 }
