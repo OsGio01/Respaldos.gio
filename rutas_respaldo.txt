@@ -1,0 +1,5 @@
+2025-12-05T22:06:39.880946|D\Respaldo_2025-12-05_21-53-52|extensiones
+2025-12-05T22:43:02.652822|Respaldos\Respaldo_2025-12-05_22-43-02|general
+2025-12-05T22:54:50.805611|Respaldos\Respaldo_2025-12-05_22-43-15|extensiones
+2025-12-05T23:00:14.466442|Respaldos\Respaldo_2025-12-05_23-00-14|general
+2025-12-05T23:12:36.077498|Respaldos\Respaldo_2025-12-05_23-00-21|extensiones
