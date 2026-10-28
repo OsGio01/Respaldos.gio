@@ -31,7 +31,7 @@ except ImportError:
 # ======================================================================
 # RUTAS Y CONSTANTES
 # ======================================================================
-VERSION_PROGRAMA = "5.2"
+VERSION_PROGRAMA = "5.3"
 RED_CLAVE_MIN = 12  # SEG-03: longitud mínima de la clave de red
 
 def obtener_ruta_base() -> str:

@@ -28,6 +28,8 @@ try:
 except ImportError:
     psutil = None
 
+VERSION_PROGRAMA = "5.3"
+
 # DETECCIÓN DE RUTA BASE PARA EJECUTABLE (¡CRÍTICO!)
 def obtener_ruta_base():
     """Devuelve la carpeta donde está el ejecutable o el script."""
