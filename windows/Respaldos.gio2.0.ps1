@@ -336,88 +336,6 @@ function Remove-OldBackups {
 }
 
 # ============================================================================
-# MODO RED (SERVIDOR/CLIENTE) usando TCP sockets
-# ============================================================================
-function Start-RedServer {
-    Write-Host "Iniciando servidor en puerto 56789..." -ForegroundColor Cyan
-    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, 56789)
-    $listener.Start()
-    Write-Host "Esperando conexión..." -ForegroundColor Yellow
-    $client = $listener.AcceptTcpClient()
-    Write-Host "Cliente conectado desde $($client.Client.RemoteEndPoint.Address)" -ForegroundColor Green
-    $stream = $client.GetStream()
-    $reader = New-Object System.IO.StreamReader($stream)
-    $writer = New-Object System.IO.StreamWriter($stream)
-    $comando = $reader.ReadLine()
-    Write-Host "Comando recibido: $comando" -ForegroundColor Yellow
-    # Por simplicidad, enviamos respaldo general de las carpetas del usuario
-    $carpetas = @("Documents", "Desktop", "Pictures", "Music", "Videos") | ForEach-Object { Join-Path $env:USERPROFILE $_ } | Where-Object { Test-Path $_ }
-    $archivos = Get-ChildItem -Path $carpetas -Recurse -File -ErrorAction SilentlyContinue
-    $writer.WriteLine($archivos.Count)
-    $writer.Flush()
-    foreach ($f in $archivos) {
-        $rel = $f.FullName.Replace($env:USERPROFILE, "").TrimStart('\')
-        $writer.WriteLine($rel)
-        $writer.WriteLine($f.Length)
-        $writer.Flush()
-        $buffer = New-Object byte[] 8192
-        $fs = $f.OpenRead()
-        while (($read = $fs.Read($buffer, 0, $buffer.Length)) -gt 0) {
-            $stream.Write($buffer, 0, $read)
-        }
-        $fs.Close()
-        Start-Sleep -Milliseconds 10
-    }
-    $writer.Close(); $reader.Close(); $stream.Close(); $client.Close(); $listener.Stop()
-    Write-Log "Transferencia completada (servidor)."
-    Read-Host "Presiona ENTER para continuar"
-}
-
-function Start-RedClient {
-    $serverIP = Read-Host "IP del servidor"
-    try {
-        $client = New-Object System.Net.Sockets.TcpClient
-        $client.Connect($serverIP, 56789)
-        $stream = $client.GetStream()
-        $writer = New-Object System.IO.StreamWriter($stream)
-        $reader = New-Object System.IO.StreamReader($stream)
-        $writer.WriteLine("general")
-        $writer.Flush()
-        $total = [int]$reader.ReadLine()
-        Write-Host "Recibiendo $total archivos..." -ForegroundColor Cyan
-        $destinoBase = Read-Host "Ruta destino para guardar (Enter para $($script:RespaldoDir))"
-        if ([string]::IsNullOrWhiteSpace($destinoBase)) { $destinoBase = $script:RespaldoDir }
-        $carpetaDestino = Join-Path $destinoBase "Respaldo_Red_$(Get-Date -Format 'yyyy-MM-dd_HH-mm-ss')"
-        New-Item -ItemType Directory -Path $carpetaDestino -Force | Out-Null
-        for ($i = 0; $i -lt $total; $i++) {
-            $rel = $reader.ReadLine()
-            $size = [int64]$reader.ReadLine()
-            $filePath = Join-Path $carpetaDestino $rel
-            $dir = Split-Path $filePath -Parent
-            if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-            $fs = [System.IO.File]::OpenWrite($filePath)
-            $buffer = New-Object byte[] 8192
-            $remaining = $size
-            while ($remaining -gt 0) {
-                $read = $stream.Read($buffer, 0, [Math]::Min($buffer.Length, $remaining))
-                if ($read -eq 0) { break }
-                $fs.Write($buffer, 0, $read)
-                $remaining -= $read
-            }
-            $fs.Close()
-            Write-Progress -Activity "Descargando" -Status "$($i+1)/$total" -PercentComplete (($i+1)/$total*100)
-        }
-        $writer.Close(); $reader.Close(); $stream.Close(); $client.Close()
-        Write-Log "Respaldo remoto recibido: $total archivos en $carpetaDestino"
-        Write-Host "Respaldo guardado en $carpetaDestino" -ForegroundColor Green
-    }
-    catch {
-        Write-Log "Error en cliente: $_" "ERROR"
-    }
-    Read-Host "Presiona ENTER para continuar"
-}
-
-# ============================================================================
 # MENÚ PRINCIPAL
 # ============================================================================
 function Show-MainMenu {
@@ -435,7 +353,6 @@ function Show-MainMenu {
     Write-Host "3)  Respaldo de unidad externa (USB/HDD)" -ForegroundColor White
     Write-Host "4)  Respaldo de XAMPP (C:\xampp\htdocs)" -ForegroundColor White
     Write-Host "5)  Modo disco externo recuperado (omite SO)" -ForegroundColor White
-    Write-Host "6)  Modo red (servidor / cliente)" -ForegroundColor White
     Write-Host "7)  Eliminar respaldos antiguos" -ForegroundColor White
     Write-Host "8)  Configurar unidad destino" -ForegroundColor White
     Write-Host "9)  Activar/Desactivar compresión automática" -ForegroundColor White
@@ -458,12 +375,6 @@ do {
         "3" { $ultimaCarpeta = Respaldo-UnidadesExternas -DestinoBase $config.unidadDestino }
         "4" { $ultimaCarpeta = Respaldo-XAMPP -DestinoBase $config.unidadDestino }
         "5" { $ultimaCarpeta = Respaldo-DiscoRecuperado -DestinoBase $config.unidadDestino }
-        "6" {
-            $sub = Read-Host "Modo red: 1) Servidor  2) Cliente"
-            if ($sub -eq "1") { Start-RedServer }
-            elseif ($sub -eq "2") { Start-RedClient }
-            else { Write-Host "Opción inválida" -ForegroundColor Red }
-        }
         "7" { Remove-OldBackups -BaseDir $config.unidadDestino }
         "8" {
             $nuevaUnidad = Read-Host "Nueva ruta base (ejemplo: D:\Respaldos o F:\)"

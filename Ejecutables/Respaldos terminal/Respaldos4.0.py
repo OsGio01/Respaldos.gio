@@ -384,7 +384,7 @@ def walk_fast(path):
         pass
 
 def get_file_hash(filepath, quick=True):
-    hasher = hashlib.md5()
+    hasher = hashlib.sha256()
     try:
         with open(filepath, 'rb') as f:
             if quick:
@@ -578,7 +578,7 @@ class GestorEstados:
     
     def crear_estado(self, origen, destino, tipo, total_archivos) -> EstadoRespaldo:
         global _estado_en_curso
-        id_res = f"{tipo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hashlib.md5(origen.encode()).hexdigest()[:8]}"
+        id_res = f"{tipo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hashlib.sha256(origen.encode()).hexdigest()[:8]}"
         estado = EstadoRespaldo(id=id_res, origen=origen, destino=destino, tipo=tipo,
                                 total_archivos=total_archivos, fecha_inicio=datetime.now().isoformat(), activo=True)
         self.estados[id_res] = estado

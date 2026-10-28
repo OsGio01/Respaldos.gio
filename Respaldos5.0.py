@@ -502,7 +502,7 @@ class GestorEstados:
         return hechos
 
     def crear_estado(self, origen, destino, tipo, total_archivos, total_bytes) -> EstadoRespaldo:
-        id_res = f"{tipo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hashlib.sha1(origen.encode('utf-8', 'replace')).hexdigest()[:8]}"
+        id_res = f"{tipo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hashlib.sha256(origen.encode('utf-8', 'replace')).hexdigest()[:8]}"
         estado = EstadoRespaldo(id=id_res, origen=origen, destino=destino, tipo=tipo,
                                 total_archivos=total_archivos, total_bytes=total_bytes,
                                 fecha_inicio=datetime.now().isoformat(), activo=True)
@@ -791,8 +791,9 @@ class ResultadoCopia:
 
 class CopiadorParalelo:
     def __init__(self, base: str, progreso: Progreso, monitor: Optional[MonitorRecursos] = None,
-                    hechos: Optional[RegistroHechos] = None, calcular_hash: bool = True):
+                    hechos: Optional[RegistroHechos] = None, calcular_hash: bool = True, buffer_size: int = BUFFER_SIZE):
         self.calcular_hash = calcular_hash
+        self.buffer_size = buffer_size
         self.base = base
         self.progreso = progreso
         self.monitor = monitor
@@ -804,7 +805,7 @@ class CopiadorParalelo:
     def _buffer(self) -> bytearray:
         buf = getattr(self._tls, "buf", None)
         if buf is None:
-            buf = self._tls.buf = bytearray(BUFFER_SIZE)
+            buf = self._tls.buf = bytearray(self.buffer_size)
         return buf
 
     @staticmethod
@@ -1133,7 +1134,8 @@ class MotorRespaldo:
         monitor = MonitorRecursos(lambda: progreso.bytes_copiados) if psutil else None
         hechos = RegistroHechos(self.gestor.ruta_hechos(estado.id)) if estado else None
         copiador = CopiadorParalelo(carpeta, progreso, monitor, hechos,
-                                    calcular_hash=cfg.verificar_hash_al_reanudar)
+                                    calcular_hash=cfg.verificar_hash_al_reanudar,
+                                    buffer_size=max(256 * 1024, (cfg.tamano_buffer_mb or 8) * 1024 * 1024))
         if monitor:
             monitor.start()
         inicio = time.time()
@@ -1573,7 +1575,7 @@ def _clave_red_bytes(config: Configuracion) -> bytes:
             config.guardar()
         except OSError:
             pass
-    return hashlib.sha256(config.red_clave.encode("utf-8")).digest()
+    return hashlib.pbkdf2_hmac("sha256", config.red_clave.encode("utf-8"), b"Respaldos.Gio", 100_000, dklen=32)
 
 def _binding_tls(sock: socket.socket) -> bytes:
     """Material ligado a la sesión TLS. Con TLS 1.3 "tls-unique" devuelve None,
@@ -1891,7 +1893,7 @@ def cliente_red(config: Configuracion, motor: MotorRespaldo):
         print(f"Recibiendo {total} archivos...")
         carpeta = crear_carpeta_respaldo(destino, config.proteger_respaldos)
         progreso = Progreso(total, 0, "Descargando", silencioso=not config.mostrar_progreso)
-        buf = bytearray(BUFFER_SIZE)
+        buf = bytearray(max(256 * 1024, (config.tamano_buffer_mb or 8) * 1024 * 1024))
         vista = memoryview(buf)
         carpetas_ok: Set[str] = set()
         recibidos = tam_total = 0
@@ -1926,7 +1928,7 @@ def cliente_red(config: Configuracion, motor: MotorRespaldo):
             try:
                 restante = size
                 while restante:
-                    n = sock.recv_into(vista[:min(BUFFER_SIZE, restante)])
+                    n = sock.recv_into(vista[:min(len(buf), restante)])
                     if not n:
                         raise ConnectionError("el otro equipo cerró la conexión")
                     if f:

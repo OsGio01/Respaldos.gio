@@ -15,7 +15,13 @@ from tkinter import ttk, messagebox, scrolledtext, filedialog, simpledialog
 from typing import List, Tuple, Dict, Optional
 from dataclasses import dataclass, asdict
 import hashlib
+import hmac
+import struct
+import ssl
+import secrets
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import errno
 
 try:
     import psutil
@@ -41,6 +47,7 @@ RUTA_REGISTRO = os.path.join(RUTA_APP, "rutas_respaldo.txt")
 RUTA_CONFIG_DIR = os.path.join(RUTA_APP, "config")  # Para listas blanca/negra
 RUTA_NOMBRES_GENERADOS = os.path.join(RUTA_APP, "respaldos_generados.json")  # registro de respaldos creados por el programa
 RUTA_ULTIMO_RESPALDO = os.path.join(RUTA_APP, "ultimo_respaldo.txt")  # ruta persistente del último respaldo
+RUTA_PINNING = os.path.join(RUTA_APP, "servidores_conocidos.json")  # PIN de servidores red (TOFU)
 
 # Asegurar que existan las carpetas necesarias
 os.makedirs(RUTA_RESPALDOS, exist_ok=True)
@@ -51,6 +58,16 @@ MAX_WORKERS = min(32, (os.cpu_count() or 2) * 2)
 BUFFER_SIZE = 256 * 1024
 HASH_CHUNK_SIZE = 8192
 NETWORK_PORT = 56789
+MAGIA_RED = b"RGIO1"
+ENC_ARCHIVO = struct.Struct("!HQ")
+ENC_TOTAL = struct.Struct("!Q")
+NETWORK_TIMEOUT_AUTH = 10
+NETWORK_TIMEOUT_SERVIDOR_AUTH = 2   # SEG-01: cada intento de auth es corto para no bloquear el accept
+NETWORK_ESPERA_SERVIDOR = 600       # SEG-02: el servidor espera clientes hasta 10 min en total
+MAX_INTENTOS_AUTH = 3
+MAX_FALLOS_POR_IP = 5               # F-04: bloqueo temporal tras N intentos fallidos desde la misma IP
+_BINDING_TLS_SIN_SOPORTE = False    # F-06: aviso unico si el SO/Python no soporta tls-server-end-point
+RED_CLAVE_MIN = 12                  # SEG-03: longitud minima de la clave de red
 
 # CLASES DEL NÚCLEO (con rutas ajustadas)
 @dataclass
@@ -85,6 +102,12 @@ class Configuracion:
     ruta_base_respaldos: str = RUTA_RESPALDOS
     tema_oscuro: bool = False
     auto_ajustar_hilos: bool = True  # compartido con la versión terminal
+    red_clave: str = ""
+    red_bind_ip: str = ""
+    red_usar_tls: bool = True
+    adb_path: str = "adb"
+    proteger_respaldos: bool = True  # SEG-07: carpeta 0700 / zip 0600 (solo tu usuario)
+    verificar_hash_al_reanudar: bool = True  # False = reanudar solo comparando tamano (mucho mas rapido)
     
     @classmethod
     def cargar(cls, ruta=None):
@@ -132,7 +155,7 @@ class GestorEstados:
             json.dump({k: asdict(v) for k, v in self.estados.items()}, f, indent=2)
     
     def crear_estado(self, origen, destino, tipo, total_archivos) -> EstadoRespaldo:
-        id_res = f"{tipo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hashlib.md5(origen.encode()).hexdigest()[:8]}"
+        id_res = f"{tipo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hashlib.sha256(origen.encode()).hexdigest()[:8]}"
         estado = EstadoRespaldo(id=id_res, origen=origen, destino=destino, tipo=tipo,
                                 total_archivos=total_archivos, fecha_inicio=datetime.now().isoformat(), activo=True)
         self.estados[id_res] = estado
@@ -239,7 +262,7 @@ def walk_fast(path):
         pass
 
 def get_file_hash(filepath, quick=True):
-    hasher = hashlib.md5()
+    hasher = hashlib.sha256()
     try:
         with open(filepath, 'rb') as f:
             if quick:
