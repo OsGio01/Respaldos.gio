@@ -107,7 +107,7 @@ class Configuracion:
     red_usar_tls: bool = True
     adb_path: str = "adb"
     proteger_respaldos: bool = True  # SEG-07: carpeta 0700 / zip 0600 (solo tu usuario)
-    verificar_hash_al_reanudar: bool = True  # False = reanudar solo comparando tamaño (mucho más rápido)
+    verificar_hash_al_reanudar: bool = False  # False = reanudar solo comparando tamaño (mucho más rápido)
     
     @classmethod
     def cargar(cls, ruta=None):

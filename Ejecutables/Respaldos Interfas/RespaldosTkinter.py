@@ -69,6 +69,219 @@ MAX_FALLOS_POR_IP = 5               # F-04: bloqueo temporal tras N intentos fal
 _BINDING_TLS_SIN_SOPORTE = False    # F-06: aviso unico si el SO/Python no soporta tls-server-end-point
 RED_CLAVE_MIN = 12                  # SEG-03: longitud minima de la clave de red
 
+# SEGURIDAD / MODO RED — motor seguro unificado (base: Respaldos5.0.py)
+# ======================================================================
+def _recibir_exacto(sock: socket.socket, n: int) -> bytes:
+    datos = bytearray()
+    while len(datos) < n:
+        trozo = sock.recv(n - len(datos))
+        if not trozo:
+            raise ConnectionError("el otro equipo cerró la conexión")
+        datos += trozo
+    return bytes(datos)
+
+def _ruta_segura(carpeta: str, rel: str) -> Optional[str]:
+    """Devuelve la ruta destino o None si es insegura (SEG-05)."""
+    try:
+        if "\x00" in rel:
+            return None
+        base = os.path.realpath(os.path.abspath(carpeta))
+        destino = os.path.realpath(os.path.abspath(os.path.join(base, rel.replace("/", os.sep))))
+        if destino == base or os.path.commonpath((base, destino)) != base:
+            return None
+        return destino
+    except (ValueError, OSError):
+        return None
+
+def _enmascarar(clave: str) -> str:
+    """Nunca se imprime la clave completa."""
+    return "ninguna" if not clave else "…" + clave[-4:]
+
+def _detectar_ip_local() -> Optional[str]:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return None
+
+def _clave_red_bytes(config) -> bytes:
+    if not config.red_clave:
+        config.red_clave = secrets.token_hex(32)
+        try:
+            config.guardar()
+        except OSError:
+            pass
+    return hashlib.pbkdf2_hmac("sha256", config.red_clave.encode("utf-8"), b"Respaldos.Gio", 100_000, dklen=32)
+
+
+def _binding_tls(sock: socket.socket) -> bytes:
+    global _BINDING_TLS_SIN_SOPORTE
+    try:
+        binding = sock.get_channel_binding("tls-server-end-point")
+    except (AttributeError, ValueError, OSError):
+        return b""
+    if not binding and not _BINDING_TLS_SIN_SOPORTE and hasattr(sock, "getpeercert"):
+        _BINDING_TLS_SIN_SOPORTE = True
+        print("Aviso: este Python/OpenSSL no expone 'tls-server-end-point'. El HMAC sigue autenticando la clave, pero no queda ligado al certificado del servidor.")
+    return binding or b""
+
+def _handshake_servidor(conn: socket.socket, clave: bytes):
+    binding = _binding_tls(conn)
+    for _ in range(MAX_INTENTOS_AUTH):
+        nonce = secrets.token_bytes(32)
+        try:
+            conn.sendall(nonce)
+            resp = _recibir_exacto(conn, 32)
+        except (ConnectionError, OSError):
+            raise ConnectionError("conexión cerrada durante autenticación")
+        esperado = hmac.new(clave, nonce + binding, hashlib.sha256).digest()
+        if hmac.compare_digest(resp, esperado):
+            conn.sendall(b"OK")
+            return
+        try:
+            conn.sendall(b"NO")
+        except OSError:
+            pass
+    raise ConnectionError("demasiados intentos fallidos")
+
+def _handshake_cliente(sock: socket.socket, clave: bytes):
+    nonce = _recibir_exacto(sock, 32)
+    binding = _binding_tls(sock)
+    resp = hmac.new(clave, nonce + binding, hashlib.sha256).digest()
+    sock.sendall(resp)
+    r = _recibir_exacto(sock, 2)
+    if r != b"OK":
+        raise ConnectionError("el servidor rechazó la autenticación (clave incorrecta)")
+
+def _intentar_tls_servidor() -> Optional[ssl.SSLContext]:
+    try:
+        from cryptography import x509
+        from cryptography.x509.oid import NameOID
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        import datetime as _dt
+    except ImportError:
+        return None
+    cert_path = os.path.join(RUTA_APP, "servidor_red.crt")
+    key_path = os.path.join(RUTA_APP, "servidor_red.key")
+    if not (os.path.exists(cert_path) and os.path.exists(key_path)):
+        for p in (cert_path, key_path):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+        try:
+            key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+            subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, u"Respaldos.Gio")])
+            cert = (x509.CertificateBuilder()
+                    .subject_name(subject).issuer_name(issuer)
+                    .public_key(key.public_key())
+                    .serial_number(x509.random_serial_number())
+                    .not_valid_before(_dt.datetime.utcnow())
+                    .not_valid_after(_dt.datetime.utcnow() + _dt.timedelta(days=3650))
+                    .sign(key, hashes.SHA256()))
+            with open(key_path, "wb") as f:
+                f.write(key.private_bytes(encoding=serialization.Encoding.PEM, format=serialization.PrivateFormat.TraditionalOpenSSL, encryption_algorithm=serialization.NoEncryption()))
+            with open(cert_path, "wb") as f:
+                f.write(cert.public_bytes(serialization.Encoding.PEM))
+            _restringir_permisos(key_path)
+        except Exception:
+            return None
+    try:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(cert_path, key_path)
+        return ctx
+    except Exception:
+        return None
+
+def _huella_cert(sock: socket.socket) -> Optional[str]:
+    try:
+        der = sock.getpeercert(binary_form=True)
+        if not der:
+            return None
+        return hashlib.sha256(der).hexdigest()
+    except Exception:
+        return None
+
+def _verificar_pin(ip: str, huella: str) -> bool:
+    datos = _cargar_json_seguro(RUTA_PINNING, {})
+    if not isinstance(datos, dict):
+        datos = {}
+    conocida = datos.get(ip)
+    if conocida is None:
+        print(f"\nServidor nuevo: {ip}")
+        print("Huella del certificado (SHA-256):")
+        print(f"  {huella}")
+        resp = input("¿Confiar en este servidor y recordarlo? (s/N): ").strip().lower()
+        if resp not in ("s", "si", "sí", "y", "yes"):
+            return False
+        datos[ip] = huella
+        try:
+            with open(RUTA_PINNING, "w", encoding="utf-8") as f:
+                json.dump(datos, f, indent=2, ensure_ascii=False)
+            _restringir_permisos(RUTA_PINNING)
+        except OSError:
+            pass
+        return True
+    if hmac.compare_digest(conocida, huella):
+        return True
+    print(f"\n¡ALERTA! La huella del certificado de {ip} CAMBIÓ.")
+    print(f"  Esperada: {conocida}")
+    print(f"  Recibida: {huella}")
+    print("Esto puede indicar un MITM, una reinstalación legítima o rotación de certificado.")
+    resp = input("¿Actualizar la huella guardada? (s/N): ").strip().lower()
+    if resp not in ("s", "si", "sí", "y", "yes"):
+        return False
+    datos[ip] = huella
+    try:
+        with open(RUTA_PINNING, "w", encoding="utf-8") as f:
+            json.dump(datos, f, indent=2, ensure_ascii=False)
+    except OSError:
+        pass
+    return True
+
+# ======================================================================
+# UTILIDADES DE SEGURIDAD / ERRORES (paridad con el motor de Respaldos5.0.py)
+# ======================================================================
+def _es_disco_lleno(e: BaseException) -> bool:
+    if not isinstance(e, OSError):
+        return False
+    if e.errno == errno.ENOSPC:
+        return True
+    we = getattr(e, "winerror", None)
+    return we in (39, 112)
+
+def motivo_corto(e: BaseException) -> str:
+    if isinstance(e, PermissionError):
+        return "sin permisos"
+    if isinstance(e, FileNotFoundError):
+        return "ya no existe"
+    if _es_disco_lleno(e):
+        return "disco de destino lleno"
+    return str(e)[:80]
+
+def _restringir_permisos(ruta: str, es_carpeta: bool = False):
+    """Deja el archivo/carpeta accesible solo por el usuario actual."""
+    if platform.system() == "Windows":
+        try:
+            usuario = os.environ.get("USERNAME", "")
+            if usuario:
+                subprocess.run(
+                    ["icacls", ruta, "/inheritance:r", "/grant:r", f"{usuario}:F"],
+                    capture_output=True, timeout=5,
+                )
+        except Exception:
+            pass
+        return
+    try:
+        os.chmod(ruta, 0o700 if es_carpeta else 0o600)
+    except OSError:
+        pass
+
+
 # CLASES DEL NÚCLEO (con rutas ajustadas)
 @dataclass
 class EstadoRespaldo:
@@ -107,7 +320,7 @@ class Configuracion:
     red_usar_tls: bool = True
     adb_path: str = "adb"
     proteger_respaldos: bool = True  # SEG-07: carpeta 0700 / zip 0600 (solo tu usuario)
-    verificar_hash_al_reanudar: bool = True  # False = reanudar solo comparando tamano (mucho mas rapido)
+    verificar_hash_al_reanudar: bool = False  # False = reanudar solo comparando tamano (mucho mas rapido)
     
     @classmethod
     def cargar(cls, ruta=None):
@@ -317,7 +530,7 @@ def copia_paralela(archivos, destino_base, sobrescribir=False, max_workers=MAX_W
                 progreso_callback(copiados + duplicados + errores, total, bytes_delta)
     return copiados, duplicados, errores, tam_total
 
-def comprimir_respaldo(carpeta, nivel=6):
+def comprimir_respaldo(carpeta, nivel=6, proteger: bool = False):
     zip_path = carpeta + ".zip"
     try:
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=nivel) as zf:
@@ -326,6 +539,8 @@ def comprimir_respaldo(carpeta, nivel=6):
                     full = os.path.join(root, f)
                     zf.write(full, os.path.relpath(full, carpeta))
         shutil.rmtree(carpeta)
+        if proteger:
+            _restringir_permisos(zip_path)
         return zip_path
     except Exception as e:
         raise e
@@ -1250,69 +1465,229 @@ class AppRespaldo:
     
     def _servidor_red(self):
         self.log("🌐 Modo servidor iniciado. Esperando conexión...")
-        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        server.bind(('0.0.0.0', NETWORK_PORT))
-        server.listen(1)
-        self.log(f"Escuchando en puerto {NETWORK_PORT}")
-        conn, addr = server.accept()
-        self.log(f"Cliente conectado desde {addr}")
-        comando = conn.recv(4096).decode().strip()
-        self.log(f"Solicitud: {comando}")
-        carpetas = obtener_carpetas_usuario()
-        archivos = []
-        for c in carpetas:
-            for ruta, nombre, size in walk_fast(c):
-                rel = os.path.basename(c) + "/" + os.path.relpath(ruta, c)
-                archivos.append((ruta, rel, size))
-        conn.sendall(str(len(archivos)).encode())
-        time.sleep(0.1)
-        for origen, rel, size in archivos:
-            conn.sendall(rel.encode() + b'\n')
-            conn.sendall(str(size).encode() + b'\n')
-            with open(origen, 'rb') as f:
-                while chunk := f.read(BUFFER_SIZE):
-                    conn.sendall(chunk)
-            time.sleep(0.01)
-        conn.close()
-        server.close()
+        config = self.config
+        clave = _clave_red_bytes(config)
+        self.log(f"Clave de red configurada: {_enmascarar(config.red_clave)}")
+        if input("¿Mostrar la clave completa en pantalla para copiarla? (s/N): ").strip().lower() in ("s", "si", "sí", "y", "yes"):
+            self.log(f"Clave de red (compartela con el cliente): {config.red_clave}")
+        bind_ip = config.red_bind_ip or ""
+        if not bind_ip:
+            ip_local = _detectar_ip_local()
+            sugerida = ip_local or "0.0.0.0"
+            bind_ip = input(f"IP a exponer [Enter = {sugerida}]: ").strip() or sugerida
+        if bind_ip == "0.0.0.0":
+            resp = input("Vas a exponer el servidor en TODAS las interfaces. ¿Continuar? (s/N): ").strip().lower()
+            if resp not in ("s", "si", "sí", "y", "yes"):
+                ip_local = _detectar_ip_local()
+                if ip_local:
+                    bind_ip = ip_local
+                else:
+                    self.log("Cancelado.")
+                    return
+        if not config.red_usar_tls:
+            self.log("AVISO: TLS esta desactivado. Los archivos viajaran SIN CIFRAR por la red.")
+            if input("¿Continuar sin TLS? (s/N): ").strip().lower() not in ("s", "si", "sí", "y", "yes"):
+                return
+        tls_ctx = _intentar_tls_servidor() if config.red_usar_tls else None
+        if config.red_usar_tls and tls_ctx is None:
+            self.log("Aviso: TLS no disponible (falta 'cryptography' o fallo al generar cert).")
+            self.log("El HMAC evita accesos no autorizados, pero el tráfico viaja en claro.")
+            if input("¿Continuar sin TLS? (s/N): ").strip().lower() not in ("s", "si", "sí", "y", "yes"):
+                return
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind((bind_ip, NETWORK_PORT))
+        srv.listen(8)
+        srv.settimeout(5.0)
+        self.log(f"Esperando cliente en {bind_ip}:{NETWORK_PORT}...")
+        limite = time.monotonic() + NETWORK_ESPERA_SERVIDOR
+        conn = None
+        fallos_por_ip = defaultdict(int)
+        ips_bloqueadas = set()
+        while conn is None:
+            if time.monotonic() > limite:
+                self.log("Tiempo de espera agotado sin un cliente autenticado. Servidor cerrado.")
+                return
+            try:
+                crudo, addr = srv.accept()
+            except socket.timeout:
+                continue
+            ip_origen = addr[0]
+            if ip_origen in ips_bloqueadas:
+                try:
+                    crudo.close()
+                except OSError:
+                    pass
+                continue
+            try:
+                crudo.settimeout(NETWORK_TIMEOUT_SERVIDOR_AUTH)
+                candidata = tls_ctx.wrap_socket(crudo, server_side=True) if tls_ctx is not None else crudo
+                if _recibir_exacto(candidata, len(MAGIA_RED)) != MAGIA_RED:
+                    raise ConnectionError("protocolo o versión distintos")
+                _handshake_servidor(candidata, clave)
+                conn = candidata
+            except (ssl.SSLError, ConnectionError, OSError) as e:
+                fallos_por_ip[ip_origen] += 1
+                self.log(f"Conexión de {ip_origen} descartada ({type(e).__name__}); sigo esperando...")
+                if fallos_por_ip[ip_origen] >= MAX_FALLOS_POR_IP:
+                    ips_bloqueadas.add(ip_origen)
+                    self.log(f"IP {ip_origen} bloqueada tras {MAX_FALLOS_POR_IP} intentos fallidos.")
+                try:
+                    crudo.close()
+                except OSError:
+                    pass
+        with conn:
+            self.log(f"Cliente autenticado desde {addr[0]}")
+            conn.settimeout(120)
+            carpetas = obtener_carpetas_usuario()
+            archivos = []
+            for c in carpetas:
+                for ruta, nombre, size in walk_fast(c):
+                    rel = os.path.basename(c) + "/" + os.path.relpath(ruta, c)
+                    archivos.append((ruta, rel, size))
+            conn.sendall(ENC_TOTAL.pack(len(archivos)))
+            enviados = 0
+            bytes_enviados = 0
+            for ruta, rel, _ in archivos:
+                try:
+                    f = open(ruta, "rb")
+                except OSError:
+                    enviados += 1
+                    continue
+                with f:
+                    real = os.fstat(f.fileno()).st_size
+                    nombre = rel.encode("utf-8")
+                    conn.sendall(ENC_ARCHIVO.pack(len(nombre), real) + nombre)
+                    if real:
+                        if conn.sendfile(f, count=real) != real:
+                            raise ConnectionError(f"el archivo cambió mientras se enviaba: {rel}")
+                    bytes_enviados += real
+                enviados += 1
+                self.actualizar_progreso(enviados, len(archivos), bytes_enviados)
+            conn.sendall(ENC_ARCHIVO.pack(0, 0))
+        srv.close()
         self.log("✅ Transferencia completada.")
-    
+
     def _cliente_red(self):
         servidor_ip = simpledialog.askstring("Cliente Red", "IP del servidor:", parent=self.root)
         if not servidor_ip:
             return
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.connect((servidor_ip, NETWORK_PORT))
-            sock.sendall(b"general")
-            total = int(sock.recv(4096).decode())
-            self.log(f"Recibiendo {total} archivos...")
+            config = self.config
+            clave_txt = input(f"Clave de red (Enter = usar la guardada: {_enmascarar(config.red_clave)}): ").strip()
+            if not clave_txt:
+                clave_txt = config.red_clave
+            if not clave_txt:
+                self.log("Se requiere la clave de red para autenticarse.")
+                return
+            clave = hashlib.sha256(clave_txt.encode("utf-8")).digest()
+            if not config.red_usar_tls:
+                self.log("AVISO: TLS esta desactivado. Todo lo que recibas viajara SIN CIFRAR por la red.")
+                if input("¿Continuar sin TLS? (s/N): ").strip().lower() not in ("s", "si", "sí", "y", "yes"):
+                    return
             destino_base = filedialog.askdirectory(title="Carpeta destino", initialdir=self.config.ruta_base_respaldos)
             if not destino_base:
-                sock.close()
                 return
-            carpeta_destino = self._crear_carpeta_respaldo(destino_base)
-            for i in range(total):
-                rel = sock.recv(4096).decode().strip()
-                size = int(sock.recv(4096).decode().strip())
-                destino = os.path.join(carpeta_destino, rel)
-                os.makedirs(os.path.dirname(destino), exist_ok=True)
-                with open(destino, 'wb') as f:
-                    recibido = 0
-                    while recibido < size:
-                        chunk = sock.recv(min(BUFFER_SIZE, size - recibido))
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                        recibido += len(chunk)
-                self.actualizar_progreso(i+1, total)
-            sock.close()
-            registrar_respaldo(carpeta_destino, "red_general", f"{total} archivos", self.config)
-            guardar_ultima_ruta(carpeta_destino, "red_general")
-            self.log(f"✅ Respaldo remoto completado en {carpeta_destino}")
+            sock = socket.create_connection((servidor_ip, NETWORK_PORT), timeout=NETWORK_TIMEOUT_AUTH)
+            if config.red_usar_tls:
+                try:
+                    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                    ctx.check_hostname = False
+                    ctx.verify_mode = ssl.CERT_NONE
+                    sock = ctx.wrap_socket(sock, server_hostname=servidor_ip)
+                except ssl.SSLError as e:
+                    self.log(f"Error TLS: {e}")
+                    self.log("Se aborta la conexion. Desactiva 'red_usar_tls' en configuracion si quieres ir en claro.")
+                    try:
+                        sock.close()
+                    except OSError:
+                        pass
+                    return
+            if config.red_usar_tls:
+                huella = _huella_cert(sock)
+                if not huella:
+                    self.log("No se pudo obtener el certificado del servidor. Se aborta.")
+                    try:
+                        sock.close()
+                    except OSError:
+                        pass
+                    return
+                if not _verificar_pin(servidor_ip, huella):
+                    self.log("Conexion abortada por verificacion de identidad del servidor.")
+                    try:
+                        sock.close()
+                    except OSError:
+                        pass
+                    return
+            carpeta = self._crear_carpeta_respaldo(destino_base)
+            recibidos = tam_total = 0
+            errores_red = []
+            with sock:
+                sock.settimeout(120)
+                sock.sendall(MAGIA_RED)
+                _handshake_cliente(sock, clave)
+                total = ENC_TOTAL.unpack(_recibir_exacto(sock, ENC_TOTAL.size))[0]
+                self.log(f"Recibiendo {total} archivos...")
+                buf = bytearray(max(256 * 1024, (self.config.tamano_buffer_mb or 8) * 1024 * 1024))
+                vista = memoryview(buf)
+                carpetas_ok = set()
+                i = 0
+                while True:
+                    largo, size = ENC_ARCHIVO.unpack(_recibir_exacto(sock, ENC_ARCHIVO.size))
+                    if largo == 0:
+                        break
+                    rel = _recibir_exacto(sock, largo).decode("utf-8", "replace")
+                    destino_archivo = _ruta_segura(carpeta, rel)
+                    guardado_ok = False
+                    f = None
+                    if destino_archivo:
+                        try:
+                            d = os.path.dirname(destino_archivo)
+                            if d not in carpetas_ok:
+                                os.makedirs(d, exist_ok=True)
+                                carpetas_ok.add(d)
+                            f = open(destino_archivo, "wb")
+                            guardado_ok = True
+                        except OSError as e:
+                            errores_red.append((rel, motivo_corto(e)))
+                            f = None
+                            guardado_ok = False
+                    else:
+                        errores_red.append((rel, "ruta no permitida (bloqueada)"))
+                    try:
+                        restante = size
+                        while restante:
+                            n = sock.recv_into(vista[:min(len(buf), restante)])
+                            if not n:
+                                raise ConnectionError("el otro equipo cerro la conexión")
+                            if f:
+                                try:
+                                    f.write(vista[:n])
+                                except OSError as e:
+                                    errores_red.append((rel, motivo_corto(e)))
+                                    try:
+                                        f.close()
+                                    except OSError:
+                                        pass
+                                    f = None
+                                    guardado_ok = False
+                            restante -= n
+                        if guardado_ok:
+                            recibidos += 1
+                            tam_total += size
+                    finally:
+                        if f:
+                            try:
+                                f.close()
+                            except OSError:
+                                pass
+                    i += 1
+                    self.actualizar_progreso(i, total, tam_total)
+            registrar_respaldo(carpeta, "red_general", f"{recibidos} archivos", self.config)
+            guardar_ultima_ruta(carpeta, "red_general")
+            self.log(f"✅ Respaldo remoto completado en {carpeta}")
             if self.config.comprimir_automatico:
-                zip_path = comprimir_respaldo(carpeta_destino, self.config.nivel_compresion)
+                zip_path = comprimir_respaldo(carpeta, self.config.nivel_compresion, proteger=self.config.proteger_respaldos)
                 self.log(f"✅ Comprimido: {zip_path}")
         except Exception as e:
             self.log(f"❌ Error en cliente: {e}")
@@ -1441,6 +1816,8 @@ class AppRespaldo:
             carpeta = os.path.join(base, f"{nombre}_{contador}")
             contador += 1
         os.makedirs(carpeta, exist_ok=True)
+        if self.config.proteger_respaldos:
+            _restringir_permisos(carpeta, es_carpeta=True)
         registrar_nombre_respaldo(os.path.basename(carpeta))
         return carpeta
 
