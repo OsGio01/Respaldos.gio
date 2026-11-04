@@ -108,6 +108,83 @@ class Interruptor(tk.Canvas):
         self.create_oval(kx, 3, kx + 20, h - 3, fill="#ffffff", outline="")
 
 
+class Burbuja(tk.Canvas):
+    """Icono (i) que al pasar el raton muestra una burbuja con el significado.
+
+    Click izquierdo fija la burbuja (para leerla con calma); otro click la
+    cierra. Se destruye sola si muere el widget que la contiene.
+    """
+
+    def __init__(self, master, texto, ancho=340, bg=None, **kw):
+        super().__init__(master, width=17, height=17, bg=bg or COLOR_PANEL,
+                         highlightthickness=0, cursor="question_arrow", **kw)
+        self.texto = texto or ""
+        self.ancho = ancho
+        self._ventana = None
+        self._fijada = False
+        self.create_oval(1, 1, 16, 16, outline=COLOR_ACCENTO, width=1)
+        self.create_text(8.5, 9, text="i", fill=COLOR_ACCENTO,
+                         font=("Segoe UI", 9, "bold"))
+        self.bind("<Enter>", self._al_entrar)
+        self.bind("<Leave>", self._al_salir)
+        self.bind("<Button-1>", self._al_pulsar)
+        self.bind("<Destroy>", self._al_destruir)
+
+    # ---------------------------------------------------------- eventos
+    def _al_entrar(self, _evento=None):
+        if not self._fijada:
+            self.mostrar()
+
+    def _al_salir(self, _evento=None):
+        if not self._fijada:
+            self.ocultar()
+
+    def _al_pulsar(self, _evento=None):
+        self._fijada = not self._fijada
+        self.mostrar() if self._fijada else self.ocultar()
+
+    def _al_destruir(self, evento):
+        if evento.widget is self:
+            self._fijada = False
+            self.ocultar()
+
+    # ---------------------------------------------------------- burbuja
+    def mostrar(self):
+        if self._ventana is not None or not self.texto:
+            return
+        try:
+            top = tk.Toplevel(self)
+            top.overrideredirect(True)
+            top.attributes("-topmost", True)
+            marco = tk.Frame(top, bg=COLOR_BORDE)
+            marco.pack(fill="both", expand=True, padx=1, pady=1)
+            tk.Label(marco, text=self.texto, bg=COLOR_PANEL_2, fg=COLOR_TEXTO,
+                     font=("Segoe UI", 9), justify="left", anchor="w",
+                     wraplength=self.ancho).pack(fill="both", expand=True,
+                                                 padx=10, pady=8)
+            top.update_idletasks()
+            x = self.winfo_rootx() - 6
+            y = self.winfo_rooty() + self.winfo_height() + 7
+            ancho_px, alto_px = top.winfo_reqwidth(), top.winfo_reqheight()
+            max_x = self.winfo_screenwidth() - ancho_px - 6
+            max_y = self.winfo_screenheight() - alto_px - 6
+            x = max(6, min(x, max_x))
+            if y > max_y:  # no cabe abajo: se coloca arriba del icono
+                y = max(6, self.winfo_rooty() - alto_px - 7)
+            top.geometry(f"+{x}+{y}")
+            self._ventana = top
+        except Exception:
+            self._ventana = None
+
+    def ocultar(self):
+        top, self._ventana = self._ventana, None
+        if top is not None:
+            try:
+                top.destroy()
+            except Exception:
+                pass
+
+
 # ==========================================================================
 #  panel base
 # ==========================================================================
@@ -646,6 +723,58 @@ CAMPOS_TEXTO = [
     ("adb_path", "Ruta de adb", False),
 ]
 
+# Significado de cada control, tal como se explica en el menu de terminal.
+NUCLEOS = os.cpu_count() or "?"
+AYUDAS = {
+    "comprimir_automatico": (
+        "Al terminar un respaldo lo guarda comprimido en un solo archivo .zip "
+        "para que ocupe menos espacio. Desactivalo si prefieres la carpeta tal cual."),
+    "registrar_rutas": (
+        "Anota la fecha, el tipo y el destino de cada respaldo en el archivo "
+        "rutas_respaldo.txt, para que siempre tengas el historial a la mano."),
+    "mostrar_progreso": (
+        "Muestra la barra de progreso en la terminal mientras corre un respaldo."),
+    "guardar_estado_respaldos": (
+        "Guarda el avance de cada respaldo para poder reanudarlo mas adelante "
+        "si se interrumpe (corte de luz, error o cierre inesperado)."),
+    "auto_ajustar_hilos": (
+        "Calcula solo cuantos hilos usar segun los nucleos de tu CPU. Si lo "
+        "activas, el control manual de hilos queda bloqueado."),
+    "red_usar_tls": (
+        "Cifra la conexion del modo red con TLS. Recomendado activado: sin TLS "
+        "los datos viajan sin cifrar por la red."),
+    "verificar_hash_al_reanudar": (
+        "Al reanudar un respaldo interrumpido verifica con SHA-256 que lo "
+        "copiado antes no este danado antes de seguir."),
+    "proteger_respaldos": (
+        "Restringe los permisos de los respaldos para que solo tu usuario pueda "
+        "leerlos (carpeta 0700, archivos 0600)."),
+    "hilos": (
+        f"Cuantos archivos se copian al mismo tiempo. Mas hilos = mas rapido, "
+        f"pero gasta mas CPU y memoria. Recomendado: entre 4 y {NUCLEOS} "
+        "(tu CPU tiene ese numero de nucleos)."),
+    "auto": (
+        "Deja que el programa elija los hilos ideales segun tu CPU. "
+        "Es lo mas sencillo y lo recomendado."),
+    "nivel": (
+        "Que tan comprime los respaldos: 0 = sin compresion (lo mas rapido), "
+        "6 = equilibrio (recomendado), 9 = compresion maxima (el archivo queda "
+        "mas chico pero tarda mas)."),
+    "ruta_base_respaldos": (
+        "Carpeta donde se guardan todos los respaldos. Puedes escribir la ruta "
+        "a mano o elegirla con 'Examinar'."),
+    "red_clave": (
+        "Contraseña que usan los equipos para autenticarse entre si en el modo "
+        f"red (HMAC). Minimo {constantes.RED_CLAVE_MIN} caracteres; se guarda "
+        "enmascarada y nunca se muestra completa por defecto."),
+    "red_bind_ip": (
+        "Direccion IP en la que escucha el servidor de red. Dejala vacia para "
+        "que el programa te la pregunte cada vez."),
+    "adb_path": (
+        "Ruta al programa 'adb' (Android Debug Bridge) que se usa para los "
+        "respaldos moviles. Ejemplo: C:\\platform-tools\\adb.exe"),
+}
+
 
 class PanelConfig(Panel):
     clave = "config"
@@ -669,9 +798,11 @@ class PanelConfig(Panel):
 
         # --- hilos
         caja2 = tarjeta(cont, pady=(0, 10))
-        tk.Label(caja2, text="HILOS PARALELOS", bg=COLOR_PANEL, fg=COLOR_SUBTEXTO,
-                 font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=14,
-                                                                pady=(10, 2))
+        cab_h = tk.Frame(caja2, bg=COLOR_PANEL)
+        cab_h.pack(fill="x", padx=14, pady=(10, 2))
+        tk.Label(cab_h, text="HILOS PARALELOS", bg=COLOR_PANEL, fg=COLOR_SUBTEXTO,
+                 font=("Segoe UI", 8, "bold"), anchor="w").pack(side="left")
+        Burbuja(cab_h, AYUDAS["hilos"]).pack(side="left", padx=(7, 0))
         tk.Label(caja2,
                  text="Cuantos archivos se copian al mismo tiempo.",
                  bg=COLOR_PANEL, fg=COLOR_LOG_INFO, font=("Segoe UI", 9), anchor="w").pack(
@@ -691,6 +822,7 @@ class PanelConfig(Panel):
                        activebackground=COLOR_PANEL, activeforeground=COLOR_TEXTO,
                        font=("Segoe UI", 9), command=self._cambio_auto).pack(
             side="left", padx=(16, 0))
+        Burbuja(fila_h, AYUDAS["auto"]).pack(side="left", padx=(7, 0))
         self.lbl_cpus = tk.Label(caja2, text=f"Tu CPU: {os.cpu_count() or '?'} nucleos",
                                  bg=COLOR_PANEL, fg=COLOR_SUBTEXTO, font=("Segoe UI", 9),
                                  anchor="w")
@@ -698,9 +830,11 @@ class PanelConfig(Panel):
 
         # --- nivel de compresion
         caja3 = tarjeta(cont, pady=(0, 10))
-        tk.Label(caja3, text="NIVEL DE COMPRESION (0-9)", bg=COLOR_PANEL, fg=COLOR_SUBTEXTO,
-                 font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=14,
-                                                                pady=(10, 2))
+        cab_n = tk.Frame(caja3, bg=COLOR_PANEL)
+        cab_n.pack(fill="x", padx=14, pady=(10, 2))
+        tk.Label(cab_n, text="NIVEL DE COMPRESION (0-9)", bg=COLOR_PANEL, fg=COLOR_SUBTEXTO,
+                 font=("Segoe UI", 8, "bold"), anchor="w").pack(side="left")
+        Burbuja(cab_n, AYUDAS["nivel"]).pack(side="left", padx=(7, 0))
         self.lbl_nivel_txt = tk.Label(caja3, text="", bg=COLOR_PANEL, fg=COLOR_LOG_INFO,
                                       font=("Segoe UI", 9), anchor="w")
         self.lbl_nivel_txt.pack(fill="x", padx=14)
@@ -736,6 +870,7 @@ class PanelConfig(Panel):
         f.pack(fill="x", padx=14, pady=3)
         tk.Label(f, text=texto, bg=COLOR_PANEL, fg=COLOR_TEXTO, font=("Segoe UI", 10),
                  anchor="w").pack(side="left")
+        Burbuja(f, AYUDAS.get(campo, "")).pack(side="left", padx=(7, 0))
         var = tk.IntVar(value=1 if getattr(self.app.config, campo) else 0)
         self._vars_bool[campo] = var
         lbl = tk.Label(f, text="", bg=COLOR_PANEL, fg=COLOR_LOG_INFO,
@@ -749,8 +884,11 @@ class PanelConfig(Panel):
     def _fila_texto(self, parent, campo, texto, con_examinar):
         f = tk.Frame(parent, bg=COLOR_PANEL)
         f.pack(fill="x", padx=14, pady=5)
-        tk.Label(f, text=texto, bg=COLOR_PANEL, fg=COLOR_TEXTO, font=("Segoe UI", 10),
-                 anchor="w").pack(anchor="w")
+        cab = tk.Frame(f, bg=COLOR_PANEL)
+        cab.pack(fill="x")
+        tk.Label(cab, text=texto, bg=COLOR_PANEL, fg=COLOR_TEXTO, font=("Segoe UI", 10),
+                 anchor="w").pack(side="left")
+        Burbuja(cab, AYUDAS.get(campo, "")).pack(side="left", padx=(7, 0))
         fila = tk.Frame(f, bg=COLOR_PANEL)
         fila.pack(fill="x", pady=(3, 0))
         e = tk.Entry(fila, bg=COLOR_PANEL_2, fg=COLOR_TEXTO, insertbackground=COLOR_TEXTO,

@@ -47,5 +47,5 @@ COLOR_ARCO_OK = "#22c55e"
 # --- medidas --------------------------------------------------------------
 ANCHO_SIDEBAR = 236
 ANCHO_VENTANA = 1180
-ALTO_VENTANA = 740
+ALTO_VENTANA = 900
 ALTO_LOG = 150
