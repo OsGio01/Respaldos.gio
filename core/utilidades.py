@@ -35,9 +35,40 @@ def limpiar_terminal() -> None:
 
 def pausa() -> None:
     try:
-        input("Presiona ENTER para continuar...")
+        pedir("Presiona ENTER para continuar...")
     except EOFError:
         return
+
+
+# --------------------------------------------------------------------------
+# Peticion de datos al usuario.
+# El front de terminal usa input() (comportamiento clasico); los fronts
+# graficos instalan su propio proveedor con `instalar_pedidor` para recoger
+# los datos sin bloquear la ventana.
+# --------------------------------------------------------------------------
+_proveedor_pedir = None
+
+
+def instalar_pedidor(proveedor) -> None:
+    """Instala `proveedor(mensaje, ocultar) -> str`. None vuelve a input()."""
+    global _proveedor_pedir
+    _proveedor_pedir = proveedor
+
+
+def pedir(mensaje: str, ocultar: bool = False) -> str:
+    """Pide un dato al usuario (siempre devuelve texto, nunca None)."""
+    if _proveedor_pedir is not None:
+        return _proveedor_pedir(mensaje, ocultar)
+    if ocultar:
+        try:
+            import getpass
+            return getpass.getpass(mensaje)
+        except Exception:
+            pass
+    try:
+        return input(mensaje)
+    except EOFError:
+        return ""
 
 
 def expandir_ruta(ruta: str) -> str:

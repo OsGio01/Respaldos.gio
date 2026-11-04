@@ -1,0 +1,18 @@
+{
+  "comprimir_automatico": false,
+  "registrar_rutas": false,
+  "mostrar_progreso": true,
+  "nivel_compresion": 6,
+  "max_archivos_paralelos": 32,
+  "tamano_buffer_mb": 8,
+  "guardar_estado_respaldos": true,
+  "auto_ajustar_hilos": true,
+  "ruta_base_respaldos": "D:\\Proyectos\\Respaldos. gio\\Respaldos.gio-1\\Ejecutables\\Respaldosterminal6.0\\Respaldos",
+  "tema_oscuro": false,
+  "red_clave": "",
+  "red_bind_ip": "",
+  "red_usar_tls": true,
+  "adb_path": "adb",
+  "proteger_respaldos": false,
+  "verificar_hash_al_reanudar": false
+}

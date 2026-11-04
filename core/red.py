@@ -23,17 +23,17 @@ def servidor_red(config) -> None:
 
     clave = seguridad._clave_red_bytes(config)
     print(f"Clave de red configurada: {seguridad._enmascarar(config.red_clave)}")
-    if input("¿Mostrar la clave completa en pantalla para copiarla? (s/N): ").strip().lower() in ("s", "si", "sí", "y", "yes"):
+    if utilidades.pedir("¿Mostrar la clave completa en pantalla para copiarla? (s/N): ").strip().lower() in ("s", "si", "sí", "y", "yes"):
         print(f"Clave de red (compártela con el cliente): {config.red_clave}")
 
     bind_ip = config.red_bind_ip or ""
     if not bind_ip:
         ip_local = seguridad._detectar_ip_local()
         sugerida = ip_local or "0.0.0.0"
-        entrada = input(f"IP a exponer [Enter = {sugerida}]: ").strip()
+        entrada = utilidades.pedir(f"IP a exponer [Enter = {sugerida}]: ").strip()
         bind_ip = entrada or sugerida
     if bind_ip == "0.0.0.0":
-        resp = input("Vas a exponer el servidor en TODAS las interfaces. ¿Continuar? (s/N): ").strip().lower()
+        resp = utilidades.pedir("Vas a exponer el servidor en TODAS las interfaces. ¿Continuar? (s/N): ").strip().lower()
         if resp not in ("s", "si", "sí", "y", "yes"):
             ip_local = seguridad._detectar_ip_local()
             if ip_local:
@@ -45,14 +45,14 @@ def servidor_red(config) -> None:
 
     if not config.red_usar_tls:
         print("AVISO: TLS está desactivado. Los archivos viajan SIN CIFRAR por la red.")
-        if input("¿Continuar sin TLS? (s/N): ").strip().lower() not in ("s", "si", "sí", "y", "yes"):
+        if utilidades.pedir("¿Continuar sin TLS? (s/N): ").strip().lower() not in ("s", "si", "sí", "y", "yes"):
             return
 
     tls_ctx = seguridad._intentar_tls_servidor() if config.red_usar_tls else None
     if config.red_usar_tls and tls_ctx is None:
         print("Aviso: TLS no disponible (falta 'cryptography' o fallo al generar cert).")
         print("El HMAC evita accesos no autorizados, pero el tráfico viaja en claro.")
-        if input("¿Continuar sin TLS? (s/N): ").strip().lower() not in ("s", "si", "sí", "y", "yes"):
+        if utilidades.pedir("¿Continuar sin TLS? (s/N): ").strip().lower() not in ("s", "si", "sí", "y", "yes"):
             return
 
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -120,10 +120,10 @@ def servidor_red(config) -> None:
 
 
 def cliente_red(config, motor_obj) -> None:
-    ip = input("IP del servidor: ").strip()
+    ip = utilidades.pedir("IP del servidor: ").strip()
     if not ip:
         return
-    clave_txt = input(f"Clave de red (Enter = usar la guardada: {seguridad._enmascarar(config.red_clave)}): ").strip()
+    clave_txt = utilidades.pedir(f"Clave de red (Enter = usar la guardada: {seguridad._enmascarar(config.red_clave)}): ").strip()
     if not clave_txt:
         clave_txt = config.red_clave
     if not clave_txt:
@@ -133,7 +133,7 @@ def cliente_red(config, motor_obj) -> None:
     clave = hashlib.sha256(clave_txt.encode("utf-8")).digest()
     if not config.red_usar_tls:
         print("AVISO: TLS está desactivado. Todo lo que recibas viaja SIN CIFRAR por la red.")
-        if input("¿Continuar sin TLS? (s/N): ").strip().lower() not in ("s", "si", "sí", "y", "yes"):
+        if utilidades.pedir("¿Continuar sin TLS? (s/N): ").strip().lower() not in ("s", "si", "sí", "y", "yes"):
             return
 
     destino = fuentes.pedir_destino(config)
@@ -254,7 +254,7 @@ def modo_red(config, motor_obj) -> None:
     print("1. Actuar como SERVIDOR")
     print("2. Actuar como CLIENTE")
     print("3. Cancelar")
-    op = input("Selecciona: ").strip()
+    op = utilidades.pedir("Selecciona: ").strip()
     if op == "1":
         servidor_red(config)
     elif op == "2":

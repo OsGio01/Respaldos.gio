@@ -17,9 +17,9 @@ def pedir_seleccion(opciones: List[Opcion], multiple: bool) -> List[Opcion]:
     for i, o in enumerate(opciones, 1):
         print(f"  {i}. {o.texto}")
     if multiple:
-        s = input("Numeros separados por espacio (o 'todos', 0 cancelar): ").strip().lower()
+        s = utilidades.pedir("Numeros separados por espacio (o 'todos', 0 cancelar): ").strip().lower()
     else:
-        s = input("Selecciona numero (0 cancelar): ").strip().lower()
+        s = utilidades.pedir("Selecciona numero (0 cancelar): ").strip().lower()
     if s in ("", "0"):
         return []
     if multiple and s == "todos":
@@ -30,7 +30,7 @@ def pedir_seleccion(opciones: List[Opcion], multiple: bool) -> List[Opcion]:
 
 
 def pedir_destino(config) -> str:
-    destino = input(f"Ruta destino (Enter: {config.ruta_base_respaldos}): ").strip()
+    destino = utilidades.pedir(f"Ruta destino (Enter: {config.ruta_base_respaldos}): ").strip()
     return utilidades.expandir_ruta(destino) if destino else config.ruta_base_respaldos
 
 
@@ -58,12 +58,12 @@ class Fuente:
     def construir_plan(self, seleccion: List[Opcion], escaner) -> Plan:
         raise NotImplementedError
 
-    def ejecutar(self, seleccion: List[Opcion], destino: str, motor_obj) -> None:
+    def ejecutar(self, seleccion: List[Opcion], destino: str, motor_obj, progreso_obj=None, cancelar=None) -> None:
         plan = self.construir_plan(seleccion, escaneo.Escaner())
         if not plan.archivos:
             print(self.sin_archivos)
-            return
-        motor_obj.ejecutar(plan, destino)
+            return None
+        return motor_obj.ejecutar(plan, destino, progreso_obj=progreso_obj, cancelar=cancelar)
 
 
 class FuenteCarpetasUsuario(Fuente):
@@ -231,10 +231,11 @@ class FuenteMovil(Fuente):
     def detectar(self) -> List[Opcion]:
         return detectar_dispositivos_moviles()
 
-    def ejecutar(self, seleccion, destino, motor_obj) -> None:
+    def ejecutar(self, seleccion, destino, motor_obj, progreso_obj=None, cancelar=None) -> None:
         o = seleccion[0]
         if o.clave != "ADB":
-            return super().ejecutar(seleccion, destino, motor_obj)
+            return super().ejecutar(seleccion, destino, motor_obj,
+                                    progreso_obj=progreso_obj, cancelar=cancelar)
         from core import seguridad
         import subprocess
         import time as _time

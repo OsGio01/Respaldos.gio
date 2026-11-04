@@ -1,4 +1,4 @@
 """Fronts del programa Respaldos.Gio (v6.0)."""
-from fronts import hud, movil, terminal
+from fronts import acciones, hud, hud_paneles, movil, terminal, tema
 
-__all__ = ["hud", "movil", "terminal"]
+__all__ = ["acciones", "hud", "hud_paneles", "movil", "terminal", "tema"]

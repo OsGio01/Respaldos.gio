@@ -1,3 +1,3 @@
-Ultima respaldo: C:\Users\Oscar\AppData\Local\Temp\respaldos_hud_test\Oscar_MSI_20261103_174511
+Ultima respaldo: C:\Users\Oscar\AppData\Local\Temp\hud_destino_nn34mjny\Oscar_MSI_20261103_211905
 Tipo: general
-Fecha: 2026-11-03T17:45:37.964757
+Fecha: 2026-11-03T21:19:05.877861
