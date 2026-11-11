@@ -13,6 +13,7 @@ from tkinter import filedialog
 
 from core import configuracion, constantes, utilidades
 from fronts import acciones
+from fronts import tema as _tema
 from fronts.tema import (
     COLOR_ACCENTO, COLOR_ACCENTO_FIN, COLOR_ARCO, COLOR_ARCO_OK, COLOR_BORDE,
     COLOR_FONDO, COLOR_LOG_ERROR, COLOR_LOG_INFO, COLOR_LOG_OK, COLOR_LOG_WARN,
@@ -217,7 +218,8 @@ class Panel:
                  font=("Segoe UI", 17, "bold"), anchor="w").pack(anchor="w")
         if self.descripcion:
             tk.Label(c, text=self.descripcion, bg=COLOR_FONDO, fg=COLOR_SUBTEXTO,
-                     font=("Segoe UI", 10), anchor="w").pack(anchor="w")
+                     font=("Segoe UI", 10), anchor="w", justify="left",
+                     wraplength=_tema.ANCHO_TEXTO).pack(anchor="w")
         return c
 
     def construir(self):
@@ -240,9 +242,12 @@ class PanelInicio(Panel):
         fila = tk.Frame(self.frame, bg=COLOR_FONDO)
         fila.pack(fill="both", expand=True)
 
-        # --- izquierda: anillo + boton
+        # --- izquierda: anillo + boton (en celular se apila arriba)
         izq = tk.Frame(fila, bg=COLOR_FONDO)
-        izq.pack(side="left", fill="y", padx=(0, 28))
+        if _tema.ES_ANCHO:
+            izq.pack(side="left", fill="y", padx=(0, 28))
+        else:
+            izq.pack(fill="x")
         self.arco = tk.Canvas(izq, bg=COLOR_FONDO, width=ANCHO_ARCO, height=ANCHO_ARCO,
                               highlightthickness=0)
         self.arco.pack(pady=(4, 10))
@@ -254,7 +259,10 @@ class PanelInicio(Panel):
 
         # --- derecha: fichas de informacion
         der = tk.Frame(fila, bg=COLOR_FONDO)
-        der.pack(side="left", fill="both", expand=True)
+        if _tema.ES_ANCHO:
+            der.pack(side="left", fill="both", expand=True)
+        else:
+            der.pack(fill="both", expand=True, pady=(14, 0))
 
         self.ficha_estado = self._ficha(der, "ESTADO")
         self.lbl_estado = self._valor(self.ficha_estado, "Listo para respaldar.")
@@ -279,7 +287,8 @@ class PanelInicio(Panel):
 
     def _valor(self, parent, texto, color=None, tam=10):
         l = tk.Label(parent, text=texto, bg=COLOR_PANEL, fg=color or COLOR_TEXTO,
-                     font=("Segoe UI", tam), anchor="w", justify="left")
+                     font=("Segoe UI", tam), anchor="w", justify="left",
+                     wraplength=_tema.ANCHO_TEXTO - 40)
         l.pack(fill="x", padx=12, pady=(2, 8))
         return l
 
@@ -391,7 +400,7 @@ class PanelFuente(Panel):
                      text="Se respaldaran todos los archivos de las extensiones configuradas "
                           "en el escaner del programa.",
                      bg=COLOR_PANEL, fg=COLOR_LOG_INFO, font=("Segoe UI", 9),
-                     anchor="w", justify="left", wraplength=700).pack(
+                     anchor="w", justify="left", wraplength=_tema.ANCHO_TEXTO).pack(
                 fill="x", padx=14, pady=12)
 
         # --- destino
@@ -497,7 +506,8 @@ class PanelReanudar(Panel):
                  font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=12,
                                                                 pady=(8, 0))
         self.lbl_vacio = tk.Label(caja, text="Cargando...", bg=COLOR_PANEL,
-                                  fg=COLOR_LOG_INFO, font=("Segoe UI", 10), anchor="w")
+                                  fg=COLOR_LOG_INFO, font=("Segoe UI", 10), anchor="w",
+                                  justify="left", wraplength=_tema.ANCHO_TEXTO - 40)
         self.lbl_vacio.pack(fill="x", padx=14, pady=6)
         cont = tk.Frame(caja, bg=COLOR_PANEL)
         cont.pack(fill="both", expand=True, padx=12, pady=(0, 12))
@@ -570,16 +580,21 @@ class PanelRed(Panel):
                  text="La clave de red, la IP y las confirmaciones se piden en ventanas "
                       "emergentes durante la operacion.",
                  bg=COLOR_FONDO, fg=COLOR_SUBTEXTO, font=("Segoe UI", 9),
-                 anchor="w", justify="left").pack(anchor="w")
+                 anchor="w", justify="left",
+                 wraplength=_tema.ANCHO_TEXTO).pack(anchor="w")
 
     def _tarjeta_opcion(self, parent, titulo, texto, accion_texto, accion):
         c = tk.Frame(parent, bg=COLOR_PANEL, highlightbackground=COLOR_BORDE,
                      highlightthickness=1)
-        c.pack(side="left", fill="both", expand=True, padx=(0, 12))
+        if _tema.ES_ANCHO:
+            c.pack(side="left", fill="both", expand=True, padx=(0, 12))
+        else:
+            c.pack(fill="x", pady=(0, 12))
         tk.Label(c, text=titulo, bg=COLOR_PANEL, fg=COLOR_ACCENTO, font=("Segoe UI", 13, "bold"),
                  anchor="w").pack(fill="x", padx=18, pady=(18, 6))
         tk.Label(c, text=texto, bg=COLOR_PANEL, fg=COLOR_LOG_INFO, font=("Segoe UI", 10),
-                 anchor="w", justify="left", wraplength=380).pack(fill="x", padx=18)
+                 anchor="w", justify="left",
+                 wraplength=min(380, _tema.ANCHO_TEXTO - 60)).pack(fill="x", padx=18)
         boton(c, accion_texto, accion, primario=True).pack(anchor="w", padx=18, pady=(18, 20))
 
 
@@ -598,7 +613,8 @@ class PanelEliminar(Panel):
                  font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=12,
                                                                 pady=(8, 0))
         self.lbl_vacio = tk.Label(caja, text="Cargando...", bg=COLOR_PANEL,
-                                  fg=COLOR_LOG_INFO, font=("Segoe UI", 10), anchor="w")
+                                  fg=COLOR_LOG_INFO, font=("Segoe UI", 10), anchor="w",
+                                  justify="left", wraplength=_tema.ANCHO_TEXTO - 40)
         self.lbl_vacio.pack(fill="x", padx=14, pady=6)
         cont = tk.Frame(caja, bg=COLOR_PANEL)
         cont.pack(fill="both", expand=True, padx=12, pady=(0, 12))
@@ -677,6 +693,7 @@ class PanelRegistros(Panel):
         cont.pack(fill="both", expand=True, padx=12, pady=(0, 12))
         self.texto = tk.Text(cont, bg=COLOR_PANEL_2, fg=COLOR_TEXTO, relief="flat",
                              font=("Consolas", 9), wrap="none", height=14,
+                             width=max(24, _tema.ANCHO_TEXTO // 9),
                              state=tk.DISABLED)
         scroll_y = tk.Scrollbar(cont, orient="vertical", command=self.texto.yview)
         scroll_x = tk.Scrollbar(cont, orient="horizontal", command=self.texto.xview)
@@ -811,18 +828,25 @@ class PanelConfig(Panel):
         fila_h.pack(fill="x", padx=14, pady=(6, 4))
         self.var_hilos = tk.IntVar(value=self.app.config.max_archivos_paralelos)
         self.scale_hilos = tk.Scale(fila_h, from_=1, to=64, orient="horizontal",
-                                    variable=self.var_hilos, length=320, showvalue=True,
+                                    variable=self.var_hilos, length=_tema.LARGO_ESCALA,
+                                    showvalue=True,
                                     bg=COLOR_PANEL, fg=COLOR_TEXTO, highlightthickness=0,
                                     troughcolor=COLOR_PANEL_2, activebackground=COLOR_ACCENTO,
                                     font=("Segoe UI", 9), command=self._cambio_hilos)
-        self.scale_hilos.pack(side="left")
+        if _tema.ES_ANCHO:
+            self.scale_hilos.pack(side="left")
+            cont_auto = fila_h
+        else:
+            self.scale_hilos.pack(fill="x")
+            cont_auto = tk.Frame(caja2, bg=COLOR_PANEL)
+            cont_auto.pack(fill="x", padx=14, pady=(2, 0))
         self.var_auto = tk.IntVar(value=1 if self.app.config.auto_ajustar_hilos else 0)
-        tk.Checkbutton(fila_h, text="Auto (recomendado)", variable=self.var_auto,
+        tk.Checkbutton(cont_auto, text="Auto (recomendado)", variable=self.var_auto,
                        bg=COLOR_PANEL, fg=COLOR_TEXTO, selectcolor=COLOR_PANEL_2,
                        activebackground=COLOR_PANEL, activeforeground=COLOR_TEXTO,
                        font=("Segoe UI", 9), command=self._cambio_auto).pack(
-            side="left", padx=(16, 0))
-        Burbuja(fila_h, AYUDAS["auto"]).pack(side="left", padx=(7, 0))
+            side="left", padx=(16, 0) if _tema.ES_ANCHO else 0)
+        Burbuja(cont_auto, AYUDAS["auto"]).pack(side="left", padx=(7, 0))
         self.lbl_cpus = tk.Label(caja2, text=f"Tu CPU: {os.cpu_count() or '?'} nucleos",
                                  bg=COLOR_PANEL, fg=COLOR_SUBTEXTO, font=("Segoe UI", 9),
                                  anchor="w")
@@ -841,11 +865,15 @@ class PanelConfig(Panel):
         fila_n = tk.Frame(caja3, bg=COLOR_PANEL)
         fila_n.pack(fill="x", padx=14, pady=(6, 10))
         self.var_nivel = tk.IntVar(value=self.app.config.nivel_compresion)
-        tk.Scale(fila_n, from_=0, to=9, orient="horizontal", variable=self.var_nivel,
-                 length=320, showvalue=True, bg=COLOR_PANEL, fg=COLOR_TEXTO,
-                 highlightthickness=0, troughcolor=COLOR_PANEL_2,
-                 activebackground=COLOR_ACCENTO, font=("Segoe UI", 9),
-                 command=self._cambio_nivel).pack(side="left")
+        escala_n = tk.Scale(fila_n, from_=0, to=9, orient="horizontal",
+                            variable=self.var_nivel,
+                            length=_tema.LARGO_ESCALA, showvalue=True, bg=COLOR_PANEL,
+                            fg=COLOR_TEXTO,
+                            highlightthickness=0, troughcolor=COLOR_PANEL_2,
+                            activebackground=COLOR_ACCENTO, font=("Segoe UI", 9),
+                            command=self._cambio_nivel)
+        escala_n.pack(side="left" if _tema.ES_ANCHO else "top",
+                      fill="x" if not _tema.ES_ANCHO else None)
         self._actualizar_texto_nivel()
 
         # --- campos de texto
@@ -860,16 +888,24 @@ class PanelConfig(Panel):
         # --- pie
         pie = tk.Frame(cont, bg=COLOR_FONDO)
         pie.pack(fill="x", pady=(4, 16))
-        boton(pie, "GUARDAR TODO", self._guardar, primario=True).pack(side="left")
-        boton(pie, "Restaurar valores por defecto", self._restaurar,
-              primario=False).pack(side="left", padx=(10, 0))
+        btn_guardar = boton(pie, "GUARDAR TODO", self._guardar, primario=True)
+        btn_restaurar = boton(pie, "Restaurar valores por defecto", self._restaurar,
+                              primario=False)
+        if _tema.ES_ANCHO:
+            btn_guardar.pack(side="left")
+            btn_restaurar.pack(side="left", padx=(10, 0))
+        else:
+            btn_guardar.pack(fill="x", pady=(0, 8))
+            btn_restaurar.pack(fill="x")
 
     # --------------------------------------------------------------- filas
     def _fila_interruptor(self, parent, campo, texto):
         f = tk.Frame(parent, bg=COLOR_PANEL)
         f.pack(fill="x", padx=14, pady=3)
+        extra = ({"wraplength": max(140, _tema.ANCHO_TEXTO - 240),
+                  "justify": "left"} if not _tema.ES_ANCHO else {})
         tk.Label(f, text=texto, bg=COLOR_PANEL, fg=COLOR_TEXTO, font=("Segoe UI", 10),
-                 anchor="w").pack(side="left")
+                 anchor="w", **extra).pack(side="left")
         Burbuja(f, AYUDAS.get(campo, "")).pack(side="left", padx=(7, 0))
         var = tk.IntVar(value=1 if getattr(self.app.config, campo) else 0)
         self._vars_bool[campo] = var

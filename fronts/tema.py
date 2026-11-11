@@ -49,3 +49,10 @@ ANCHO_SIDEBAR = 236
 ANCHO_VENTANA = 1180
 ALTO_VENTANA = 900
 ALTO_LOG = 150
+
+# --- medidas de los paneles ----------------------------------------------
+# El front de escritorio usa los valores por defecto; el front movil los
+# reduce antes de construir los paneles para que quepan en su ventana.
+ANCHO_TEXTO = 700      # wraplength de los textos largos (px)
+LARGO_ESCALA = 320     # longitud de los sliders (px)
+ES_ANCHO = True        # False cuando el front es estrecho (celular)
