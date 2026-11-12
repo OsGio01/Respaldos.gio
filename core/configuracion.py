@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Configuracion del programa (nucleo v6.0 - Programacion Orientada a Objetos)."""
+"""Configuracion del programa (nucleo v6.1 - Programacion Orientada a Objetos)."""
 import json
 import os
 from dataclasses import asdict, dataclass

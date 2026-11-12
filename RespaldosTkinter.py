@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Respaldos.Gio - fachada del front grafico minimalo (v6.0).
+"""Respaldos.Gio - fachada del front grafico minimalo (v6.1).
 
 Delega en el front HUD del nucleo OOP. Toda la logica vive en `core`.
 """

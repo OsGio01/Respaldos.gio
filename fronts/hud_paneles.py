@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Paneles del front de escritorio (Respaldos.Gio v6.0).
+"""Paneles del front de escritorio (Respaldos.Gio v6.1).
 
 Cada panel es una vista del area de contenido. La logica de negocio vive en
 `core` y las operaciones sin presentacion en `fronts.acciones`; aqui solo se

@@ -1,6 +1,6 @@
 # Pruebas
 
-Pruebas de Respaldos.Gio v6.0. Viven en el repo para que cualquiera pueda
+Pruebas de Respaldos.Gio v6.1. Viven en el repo para que cualquiera pueda
 correrlas; todas usan rutas relativas (no dependen de dónde esté el proyecto).
 
 ## Correr todo

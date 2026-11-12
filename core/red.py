@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Modo red interna: servidor y cliente con TLS + HMAC + PIN (nucleo v6.0)."""
+"""Modo red interna: servidor y cliente con TLS + HMAC + PIN (nucleo v6.1)."""
 import os
 import socket
 import ssl

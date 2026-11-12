@@ -88,6 +88,12 @@ def sustituir_texto(vieja, nueva):
         for f in sorted(os.listdir(pruebas)):
             if f.endswith(".py") or f == "README.md":
                 objetivos.append(os.path.join(pruebas, f))
+    # los config de los ejecutables guardan la ruta de respaldos con la version
+    if os.path.isdir(EJEC):
+        for carpeta in sorted(os.listdir(EJEC)):
+            config = os.path.join(EJEC, carpeta, "config.json")
+            if os.path.exists(config):
+                objetivos.append(config)
     ignorados = os.path.join(RAIZ, "ignorados")
     if os.path.isdir(ignorados):
         for f in ("AGENTS.md",):

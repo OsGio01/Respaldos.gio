@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Seguridad: permisos, hashes, errores amigables, clave de red, TLS y PIN (nucleo v6.0)."""
+"""Seguridad: permisos, hashes, errores amigables, clave de red, TLS y PIN (nucleo v6.1)."""
 import hashlib
 import hmac
 import os

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Progreso, monitor de recursos y copiador paralelo (nucleo v6.0)."""
+"""Progreso, monitor de recursos y copiador paralelo (nucleo v6.1)."""
 import os
 import shutil
 import sys

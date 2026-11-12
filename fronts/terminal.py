@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Front basico de terminal del programa Respaldos.Gio (v6.0).
+"""Front basico de terminal del programa Respaldos.Gio (v6.1).
 
 Delega TODOS los pasos de negocio en el nucleo OOP (`core`); esta capa solo
 presenta menus, pide datos y muestra salidas.
@@ -234,7 +234,8 @@ def menu_principal() -> None:
             print("\n" + "=" * 70)
             print("       SISTEMA DE RESPALDOS AVANZADO - TERMINAL PORTABLE")
             print("=" * 70)
-            print(f"{platform.system()} | Base: {config.ruta_base_respaldos}")
+            print(f"{platform.system()} | Version {constantes.VERSION_PROGRAMA} | "
+                  f"Base: {config.ruta_base_respaldos}")
             ultima = persistencia.leer_ultima_ruta()
             if ultima:
                 print(ultima.splitlines()[0])

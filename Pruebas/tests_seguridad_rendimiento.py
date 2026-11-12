@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Suite de pruebas de seguridad y rendimiento de Respaldos.Gio (v6.0).
+"""Suite de pruebas de seguridad y rendimiento de Respaldos.Gio (v6.1).
 
 Portada del core OOP (antes apuntaba a Respaldos5.0.py). Valida:
   - verificar_hash_al_reanudar default == False
@@ -45,7 +45,7 @@ NETWORK_PORT = constantes.NETWORK_PORT
 
 
 class TestSeguridad(unittest.TestCase):
-    """Pruebas de seguridad del nucleo v6.0."""
+    """Pruebas de seguridad del nucleo v6.1."""
 
     def test_verificar_hash_al_reanudar_default_false(self):
         """Default False para evitar I/O duplicado en respaldos grandes."""

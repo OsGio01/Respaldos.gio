@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Bateria de pruebas de Respaldos.Gio v6.0.
+"""Bateria de pruebas de Respaldos.Gio v6.1.
 
 Uso:
     python Pruebas\\run_all_tests.py            # nucleo y frentes

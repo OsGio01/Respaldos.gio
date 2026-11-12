@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Design system del front de escritorio (Respaldos.Gio v6.0).
+"""Design system del front de escritorio (Respaldos.Gio v6.1).
 
 Tokens de color y medidas compartidos por el HUD, los paneles y el front
 movil. Toda la logica de negocio vive en `core`; aqui solo hay presentacion.

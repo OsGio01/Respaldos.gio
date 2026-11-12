@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Entry del front movil de Respaldos.Gio (v6.0).
+"""Entry del front movil de Respaldos.Gio (v6.1).
 
 Arranca la ventana celular (menu hamburguesa) del nucleo OOP.
 """

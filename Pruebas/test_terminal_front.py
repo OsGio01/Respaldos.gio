@@ -1,4 +1,4 @@
-# Prueba de Respaldos.Gio v6.0 (ver Pruebas/README.md)
+# Prueba de Respaldos.Gio v6.1 (ver Pruebas/README.md)
 
 import os
 import sys

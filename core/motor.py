@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Motor de respaldo: ejecuta, reanuda y finaliza respaldos (nucleo v6.0)."""
+"""Motor de respaldo: ejecuta, reanuda y finaliza respaldos (nucleo v6.1)."""
 import os
 import shutil
 import time

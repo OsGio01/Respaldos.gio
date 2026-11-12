@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Fuentes de respaldo y flujo de seleccion (nucleo v6.0)."""
+"""Fuentes de respaldo y flujo de seleccion (nucleo v6.1)."""
 import os
 from typing import List, NamedTuple
 

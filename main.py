@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Entry principal del programa Respaldos.Gio (v6.0)."""
+"""Entry principal del programa Respaldos.Gio (v6.1)."""
 import os
 
 from core import constantes, configuracion, estados, motor
