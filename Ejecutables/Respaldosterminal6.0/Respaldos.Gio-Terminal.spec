@@ -1,9 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
+"""Spec del ejecutable de terminal de Respaldos.Gio v6.0.
 
+Se ejecuta con:  python -m PyInstaller Ejecutables\Respaldosterminal6.0\Respaldos.Gio-Terminal.spec
+(o mejor:  python Ejecutables\construir_6.0.py)
+
+El entry vive en la raiz del proyecto (fuente unica de verdad) y el icono se
+toma de esta misma carpeta, como exige el requerimiento del icono propio.
+"""
+import os
+
+# Raiz del proyecto: la carpeta de este spec esta en <raiz>/Ejecutables/<carpeta>
+RAIZ = os.path.abspath(os.path.join(SPECPATH, os.pardir, os.pardir))
 
 a = Analysis(
-    ['Respaldos4.0.py'],
-    pathex=[],
+    [os.path.join(RAIZ, 'Respaldos.py')],
+    pathex=[RAIZ],
     binaries=[],
     datas=[],
     hiddenimports=[],
@@ -22,11 +33,11 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='Respaldos.Gio-Terminal',
+    name='Respaldos.gio-Terminal6.0',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=True,
@@ -35,5 +46,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['icono.ico'],
+    icon=[os.path.join(SPECPATH, 'icono.ico')],
 )

@@ -1,9 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
+"""Spec del ejecutable de escritorio (HUD) de Respaldos.Gio v6.0.
 
+Se ejecuta con:  python -m PyInstaller Ejecutables\RespaldosInterface6.0\Respaldos.Gio.spec
+(o mejor:  python Ejecutables\construir_6.0.py)
+
+El entry vive en la raiz del proyecto (fuente unica de verdad) y el icono se
+toma de esta misma carpeta, como exige el requerimiento del icono propio.
+"""
+import os
+
+# Raiz del proyecto: la carpeta de este spec esta en <raiz>/Ejecutables/<carpeta>
+RAIZ = os.path.abspath(os.path.join(SPECPATH, os.pardir, os.pardir))
 
 a = Analysis(
-    ['RespaldosTkinter.py'],
-    pathex=[],
+    [os.path.join(RAIZ, 'RespaldosTkinter.py')],
+    pathex=[RAIZ],
     binaries=[],
     datas=[],
     hiddenimports=[],
@@ -22,11 +33,11 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='Respaldos.Gio',
+    name='Respaldos.Gio6.0',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
@@ -35,5 +46,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['interface.ico'],
+    icon=[os.path.join(SPECPATH, 'interface.ico')],
 )
