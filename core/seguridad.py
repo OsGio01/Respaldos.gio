@@ -12,15 +12,162 @@ from typing import Optional
 from core import constantes, persistencia
 
 
+def _sid_usuario_actual() -> str:
+    """SID del usuario actual en formato de texto (S-1-5-21-...). Vacio si falla."""
+    import ctypes
+    from ctypes import wintypes as wt
+
+    kernel32 = ctypes.windll.kernel32
+    advapi32 = ctypes.windll.advapi32
+
+    class SID_AND_ATTRIBUTES(ctypes.Structure):
+        _fields_ = [("Sid", ctypes.c_void_p), ("Attributes", wt.DWORD)]
+
+    TOKEN_QUERY = 0x0008
+    TokenUser = 1
+
+    advapi32.OpenProcessToken.argtypes = [wt.HANDLE, wt.DWORD,
+                                          ctypes.POINTER(wt.HANDLE)]
+    advapi32.OpenProcessToken.restype = wt.BOOL
+    advapi32.GetTokenInformation.argtypes = [wt.HANDLE, ctypes.c_int,
+                                             ctypes.c_void_p, wt.DWORD,
+                                             ctypes.POINTER(wt.DWORD)]
+    advapi32.GetTokenInformation.restype = wt.BOOL
+    advapi32.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p,
+                                                 ctypes.POINTER(wt.LPWSTR)]
+    advapi32.ConvertSidToStringSidW.restype = wt.BOOL
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    kernel32.LocalFree.restype = ctypes.c_void_p
+    kernel32.CloseHandle.argtypes = [wt.HANDLE]
+    kernel32.GetCurrentProcess.argtypes = []
+    kernel32.GetCurrentProcess.restype = wt.HANDLE
+
+    token = wt.HANDLE()
+    if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), TOKEN_QUERY,
+                                     ctypes.byref(token)):
+        return ""
+    try:
+        tam = wt.DWORD()
+        advapi32.GetTokenInformation(token, TokenUser, None, 0, ctypes.byref(tam))
+        if not tam.value:
+            return ""
+        buf = ctypes.create_string_buffer(tam.value)
+        if not advapi32.GetTokenInformation(token, TokenUser, buf, tam,
+                                            ctypes.byref(tam)):
+            return ""
+        usuario = SID_AND_ATTRIBUTES.from_buffer_copy(buf.raw)
+        ptr = wt.LPWSTR()
+        if not advapi32.ConvertSidToStringSidW(usuario.Sid, ctypes.byref(ptr)):
+            return ""
+        try:
+            return ptr.value or ""
+        finally:
+            kernel32.LocalFree(ptr)
+    finally:
+        kernel32.CloseHandle(token)
+
+
+def _aplicar_acl_windows(ruta: str) -> bool:
+    """Deja el archivo solo para el usuario actual usando la API de Windows.
+
+    Equivale a `icacls ruta /inheritance:r /grant:r <usuario>:F` pero sin
+    lanzar un proceso externo (eso congelaba la interfaz en cada guardado).
+    Devuelve False si no se pudo, para que el llamador use el respaldo.
+    """
+    import ctypes
+    from ctypes import wintypes as wt
+
+    sid = _sid_usuario_actual()
+    if not sid:
+        return False
+
+    kernel32 = ctypes.windll.kernel32
+    advapi32 = ctypes.windll.advapi32
+
+    # D:P = DACL protegida (sin herencia), A = allow, FA = acceso total
+    sddl = f"D:P(A;;FA;;;{sid})"
+
+    advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
+        wt.LPCWSTR, wt.DWORD, ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(wt.DWORD)]
+    advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW.restype = wt.BOOL
+    advapi32.GetSecurityDescriptorDacl.argtypes = [
+        ctypes.c_void_p, ctypes.POINTER(ctypes.c_int),
+        ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_int)]
+    advapi32.GetSecurityDescriptorDacl.restype = wt.BOOL
+    advapi32.SetNamedSecurityInfoW.argtypes = [
+        wt.LPCWSTR, ctypes.c_int, wt.DWORD, ctypes.c_void_p, ctypes.c_void_p,
+        ctypes.c_void_p, ctypes.c_void_p]
+    advapi32.SetNamedSecurityInfoW.restype = wt.DWORD
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    kernel32.LocalFree.restype = ctypes.c_void_p
+
+    descriptor = ctypes.c_void_p()
+    if not advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            ctypes.create_unicode_buffer(sddl), 1, ctypes.byref(descriptor), None):
+        return False
+    try:
+        dacl = ctypes.c_void_p()
+        presente = ctypes.c_int()
+        por_defecto = ctypes.c_int()
+        # GetSecurityDescriptorDacl(pSecurityDescriptor, pDaclPresent, pDacl, pDaclDefaulted)
+        if not advapi32.GetSecurityDescriptorDacl(descriptor, ctypes.byref(presente),
+                                                  ctypes.byref(dacl),
+                                                  ctypes.byref(por_defecto)):
+            return False
+        SE_FILE_OBJECT = 1
+        DACL_SECURITY_INFORMATION = 0x00000004
+        PROTECTED_DACL_SECURITY_INFORMATION = 0x80000000
+        flags = DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION
+        ok = advapi32.SetNamedSecurityInfoW(ruta, SE_FILE_OBJECT, flags, None, None,
+                                             dacl if presente.value else None,
+                                             None) == 0
+    finally:
+        kernel32.LocalFree(descriptor)
+
+    if ok and not _sigue_legible(ruta):
+        # Nunca dejar al usuario sin acceso a su propio archivo.
+        try:
+            usuario = os.environ.get("USERNAME", "")
+            if usuario:
+                subprocess.run(
+                    ["icacls", ruta, "/inheritance:r", "/grant:r", f"{usuario}:F"],
+                    capture_output=True, timeout=5,
+                )
+        except Exception:
+            pass
+        return False
+    return ok
+
+
+def _sigue_legible(ruta: str) -> bool:
+    """Comprueba que el archivo sigue siendo legible tras cambiar la ACL."""
+    if not os.path.exists(ruta):
+        return True
+    try:
+        with open(ruta, "rb") as f:
+            f.read(1)
+        return True
+    except OSError:
+        return False
+
+
 def _restringir_permisos(ruta: str, es_carpeta: bool = False) -> None:
     """Deja el archivo/carpeta accesible solo por el usuario actual.
 
     POSIX: chmod 0700 si es carpeta, 0600 si es archivo (para directorios hay
     que mantener el bit de ejecucion, si no no se puede entrar).
-    Windows: quita herencia y otorga control total solo al usuario.
+    Windows: ACL protegida con acceso total solo para el usuario, aplicada con
+    la API del sistema (rapida). Si eso falla, se intenta con icacls.
     Silencioso si falla.
     """
     if os.name == "nt":
+        try:
+            if _aplicar_acl_windows(ruta):
+                return
+        except Exception:
+            pass
+        # respaldo: icacls (lento, solo si la API no estuvo disponible)
         try:
             usuario = os.environ.get("USERNAME", "")
             if usuario:

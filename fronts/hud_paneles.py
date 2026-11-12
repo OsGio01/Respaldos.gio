@@ -799,6 +799,7 @@ class PanelConfig(Panel):
     descripcion = "Ajustes del programa. Los cambios se guardan solos."
 
     def construir(self):
+        self._guardar_programado = None
         self._cabecera(self.frame)
         self.scroll = MarcoScroll(self.frame)
         self.scroll.pack(fill="both", expand=True)
@@ -956,7 +957,7 @@ class PanelConfig(Panel):
 
     def _cambio_hilos(self, _valor):
         self.app.config.max_archivos_paralelos = max(1, min(64, int(self.var_hilos.get())))
-        self._guardar()
+        self._programar_guardar()
 
     def _cambio_auto(self):
         self.app.config.auto_ajustar_hilos = bool(self.var_auto.get())
@@ -966,6 +967,27 @@ class PanelConfig(Panel):
     def _cambio_nivel(self, _valor):
         self.app.config.nivel_compresion = max(0, min(9, int(self.var_nivel.get())))
         self._actualizar_texto_nivel()
+        self._programar_guardar()
+
+    def _programar_guardar(self, retardo=200):
+        """Guarda el config poco despues del ultimo cambio.
+
+        Los sliders avisan por cada unidad que se mueven: guardar en cada
+        aviso hacia que la ventana se trabara. Aqui se espera a que el usuario
+        suelte el control.
+        """
+        try:
+            if self._guardar_programado is not None:
+                self.app.root.after_cancel(self._guardar_programado)
+        except Exception:
+            pass
+        try:
+            self._guardar_programado = self.app.root.after(retardo, self._guardar_diferida)
+        except Exception:
+            self._guardar_programado = None
+
+    def _guardar_diferida(self):
+        self._guardar_programado = None
         self._guardar()
 
     def _actualizar_texto_nivel(self):

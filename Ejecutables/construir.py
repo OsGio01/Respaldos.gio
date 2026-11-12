@@ -1,42 +1,60 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Reconstruye los tres ejecutables de Respaldos.Gio v6.0.
+"""Reconstruye los tres ejecutables de Respaldos.Gio.
 
-Uso:  python Ejecutables\\construir_6.0.py
+Uso:  python Ejecutables\\construir.py
+      python Ejecutables\\construir.py --solo celular
 
 Cada ejecutable se arma desde su .spec (que apunta al entry de la raiz del
-proyecto y al icono de su propia carpeta). PyInstaller deja dist/ y build/ en
-el directorio de trabajo actual, asi que aqui se pasan de forma explicita y
-al final se limpian.
+proyecto y al icono de su propia carpeta). La version se lee del nucleo
+(core/constantes.py), asi que no hay nada que actualizar a mano al subirla.
 
-Opcional:  python Ejecutables\\construir_6.0.py --solo celular
+PyInstaller deja dist/ y build/ en el directorio de trabajo actual, asi que
+aqui se pasan de forma explicita y al final se limpian.
 """
 import os
+import re
 import shutil
 import subprocess
 import sys
 import time
 
 RAIZ = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir))
+EJEC = os.path.join(RAIZ, "Ejecutables")
+
+
+def version_programa():
+    """La version vive en el nucleo: es la fuente unica de la verdad."""
+    with open(os.path.join(RAIZ, "core", "constantes.py"), encoding="utf-8") as f:
+        m = re.search(r'VERSION_PROGRAMA\s*=\s*"([^"]+)"', f.read())
+    if not m:
+        raise SystemExit("No se encontro VERSION_PROGRAMA en core/constantes.py")
+    return m.group(1)
+
+
+VERSION = version_programa()
 
 # (carpeta, spec, nombre del exe, modo)
 OBJETIVOS = [
-    ("RespaldosInterface6.0", "Respaldos.Gio.spec", "Respaldos.Gio6.0", "windowed"),
-    ("Respaldosterminal6.0", "Respaldos.Gio-Terminal.spec", "Respaldos.gio-Terminal6.0", "console"),
-    ("Respaldoscelular6.0", "RespaldosCelular.spec", "RespaldosCelular6.0", "windowed"),
+    (f"RespaldosInterface{VERSION}", "Respaldos.Gio.spec",
+     f"Respaldos.Gio{VERSION}", "windowed"),
+    (f"Respaldosterminal{VERSION}", "Respaldos.Gio-Terminal.spec",
+     f"Respaldos.gio-Terminal{VERSION}", "console"),
+    (f"Respaldoscelular{VERSION}", "RespaldosCelular.spec",
+     f"RespaldosCelular{VERSION}", "windowed"),
 ]
 
 # modulos que DEBEN quedar empaquetados (para no volver a confusingnos con
 # un exe viejo que se parece en el nombre)
 DEBE_TENER = {
-    "RespaldosInterface6.0": ["fronts.hud", "fronts.hud_paneles", "core.motor"],
-    "Respaldosterminal6.0": ["fronts.terminal", "core.motor"],
-    "Respaldoscelular6.0": ["fronts.movil", "core.motor"],
+    f"RespaldosInterface{VERSION}": ["fronts.hud", "fronts.hud_paneles", "core.motor"],
+    f"Respaldosterminal{VERSION}": ["fronts.terminal", "core.motor"],
+    f"Respaldoscelular{VERSION}": ["fronts.movil", "core.motor"],
 }
 
 
 def solo(nombre):
-    """Filtra los objetivos por coincidencua parcial de la carpeta."""
+    """Filtra los objetivos por coincidencia parcial de la carpeta."""
     if not nombre:
         return OBJETIVOS
     return [o for o in OBJETIVOS if nombre.lower() in o[0].lower()]
@@ -56,7 +74,7 @@ def modulos_empaquetados(exe):
 
 
 def construir(carpeta, spec, nombre, modo):
-    base = os.path.join(RAIZ, "Ejecutables", carpeta)
+    base = os.path.join(EJEC, carpeta)
     ruta_spec = os.path.join(base, spec)
     dist = os.path.join(base, "dist")
     build = os.path.join(base, "build")
@@ -118,7 +136,7 @@ def main():
         print("No hay objetivos para ese filtro.")
         return 1
 
-    print(f"Reconstruyendo {len(objetivos)} ejecutable(s) de Respaldos.Gio v6.0")
+    print(f"Reconstruyendo {len(objetivos)} ejecutable(s) de Respaldos.Gio v{VERSION}")
     fallos = []
     for carpeta, spec, nombre, modo in objetivos:
         if not construir(carpeta, spec, nombre, modo):

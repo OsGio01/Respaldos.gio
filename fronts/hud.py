@@ -142,7 +142,7 @@ class Aplicacion:
 
         self._construir_ui()
         self.navegar("inicio")
-        self.log("Respaldos.Gio v6.0 listo.", "ok")
+        self.log(f"Respaldos.Gio v{constantes.VERSION_PROGRAMA} listo.", "ok")
         self._refrescar()
 
     # ==================================================================

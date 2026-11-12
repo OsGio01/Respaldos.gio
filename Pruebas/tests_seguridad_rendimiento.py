@@ -281,5 +281,69 @@ class TestRendimiento(unittest.TestCase):
         self.assertIn("tamano_buffer_mb", contenido)
 
 
+class TestPermisos(unittest.TestCase):
+    """Los permisos no pueden depender de lanzar un proceso externo.
+
+    Antes se usaba `icacls` en cada guardado: eso congelaba la interfaz del
+    escritorio y del celular al mover un control. Ahora se aplica la ACL con
+    la API de Windows directamente.
+    """
+
+    def test_restringir_permisos_no_lanza_subprocesos(self):
+        original = seguridad.subprocess.run
+
+        def prohibido(*args, **kwargs):
+            raise AssertionError("se lanzo un subproceso: " + str(args))
+
+        with tempfile.TemporaryDirectory() as d:
+            ruta = os.path.join(d, "config.json")
+            with open(ruta, "w", encoding="utf-8") as f:
+                f.write("{}")
+            seguridad.subprocess.run = prohibido
+            try:
+                seguridad._restringir_permisos(ruta)
+                seguridad._restringir_permisos(d, es_carpeta=True)
+            finally:
+                seguridad.subprocess.run = original
+
+    def test_guardar_config_no_lanza_subprocesos(self):
+        original = seguridad.subprocess.run
+
+        def prohibido(*args, **kwargs):
+            raise AssertionError("se lanzo un subproceso: " + str(args))
+
+        with tempfile.TemporaryDirectory() as d:
+            ruta = os.path.join(d, "config.json")
+            seguridad.subprocess.run = prohibido
+            try:
+                cfg = Configuracion()
+                for _ in range(20):
+                    cfg.guardar(ruta)
+            finally:
+                seguridad.subprocess.run = original
+
+    def test_el_archivo_sigue_legible(self):
+        """Aplicar los permisos no puede dejar al usuario sin acceso."""
+        with tempfile.TemporaryDirectory() as d:
+            ruta = os.path.join(d, "config.json")
+            with open(ruta, "w", encoding="utf-8") as f:
+                f.write("hola")
+            seguridad._restringir_permisos(ruta)
+            with open(ruta, encoding="utf-8") as f:
+                self.assertEqual(f.read(), "hola", "el archivo quedo ilegible")
+
+    def test_guardar_config_es_rapido(self):
+        """Guardar el config no debe tardar (se hace en cada cambio de la UI)."""
+        with tempfile.TemporaryDirectory() as d:
+            ruta = os.path.join(d, "config.json")
+            cfg = Configuracion()
+            inicio = time.time()
+            for _ in range(50):
+                cfg.guardar(ruta)
+            total = time.time() - inicio
+            self.assertLess(total, 5.0,
+                            f"50 guardados tardaron {total:.2f}s (deberia ser instantaneo)")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
