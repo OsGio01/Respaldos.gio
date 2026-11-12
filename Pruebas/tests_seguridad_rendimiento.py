@@ -220,11 +220,23 @@ class TestClaveRed(unittest.TestCase):
             cfg = Configuracion()
             cfg.red_clave = "clave_secreta_de_prueba_1234"
             cfg.guardar(ruta)
-            cfg.red_clave = ""
-            cfg.guardar(ruta)
+            cfg.borrar_clave_red(ruta)
             protegida = seguridad.ruta_clave_red(ruta)
             self.assertFalse(os.path.exists(protegida), "el archivo protegido quedo con la clave")
             self.assertEqual(Configuracion.cargar(ruta).red_clave, "")
+
+    def test_guardar_sin_clave_no_borra_la_guardada(self):
+        """Un guardado que no lleva clave no debe borrar la que ya existe."""
+        with tempfile.TemporaryDirectory() as d:
+            ruta = os.path.join(d, "config.json")
+            cfg = Configuracion()
+            cfg.red_clave = "clave_secreta_de_prueba_1234"
+            cfg.guardar(ruta)
+            otra = Configuracion()          # config nueva, sin clave
+            otra.guardar(ruta)
+            protegida = seguridad.ruta_clave_red(ruta)
+            self.assertTrue(os.path.exists(protegida), "se borro la clave sin querer")
+            self.assertEqual(Configuracion.cargar(ruta).red_clave, "clave_secreta_de_prueba_1234")
 
     def test_clave_corta_se_rechaza(self):
         """SEG-03: la clave de red necesita al menos RED_CLAVE_MIN caracteres."""

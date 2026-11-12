@@ -994,6 +994,9 @@ class PanelConfig(Panel):
         if campo == "ruta_base_respaldos" and valor:
             valor = utilidades.expandir_ruta(valor)
         setattr(self.app.config, campo, valor)
+        if campo == "red_clave" and not valor:
+            # el usuario limpio la clave a proposito
+            self.app.config.borrar_clave_red()
         self._guardar()
 
     def _guardar(self):

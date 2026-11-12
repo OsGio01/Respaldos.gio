@@ -147,18 +147,11 @@ def _leer_clave_red(ruta_config: str = None) -> str:
 def _guardar_clave_red(clave: str, ruta_config: str = None) -> bool:
     """Guarda la clave de red en el archivo protegido (0600 / solo el usuario).
 
-    Con clave vacia borra el archivo (el usuario limpio su clave).
-    Con clave demasiado corta no toca nada.
+    Con clave vacia o demasiado corta no toca nada: borrar la clave es una
+    accion explicita (_borrar_clave_red).
     """
     ruta = ruta_clave_red(ruta_config)
     clave = (clave or "").strip()
-    if not clave:
-        try:
-            if os.path.exists(ruta):
-                os.remove(ruta)
-            return True
-        except OSError:
-            return False
     if len(clave) < constantes.RED_CLAVE_MIN:
         return False
     try:
@@ -169,6 +162,17 @@ def _guardar_clave_red(clave: str, ruta_config: str = None) -> bool:
         return False
     _restringir_permisos(ruta)
     return True
+
+
+def _borrar_clave_red(ruta_config: str = None) -> bool:
+    """Borra el archivo protegido con la clave de red."""
+    ruta = ruta_clave_red(ruta_config)
+    try:
+        if os.path.exists(ruta):
+            os.remove(ruta)
+        return True
+    except OSError:
+        return False
 
 
 def _clave_red_bytes(config) -> bytes:

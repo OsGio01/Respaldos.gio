@@ -88,7 +88,14 @@ class Configuracion:
         persistencia.guardar_json(ruta, datos)
         seguridad._restringir_permisos(ruta)
         # La clave se guarda en el archivo protegido con permisos restringidos.
-        seguridad._guardar_clave_red(clave, ruta)
+        # Con clave vacia no se toca el archivo: borrarla es accion explicita.
+        if clave:
+            seguridad._guardar_clave_red(clave, ruta)
+
+    def borrar_clave_red(self, ruta: str = constantes.RUTA_CONFIG) -> None:
+        """Borra la clave de red guardada (el usuario la limpio a proposito)."""
+        self.red_clave = ""
+        seguridad._borrar_clave_red(ruta)
 
 
 def cargar_config(ruta: str = constantes.RUTA_CONFIG) -> Configuracion:

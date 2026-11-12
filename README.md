@@ -57,6 +57,9 @@ fronts/   Los tres frentes (terminal, HUD, celular). Solo presentan: leen del
 - La **clave de red no viaja en el `config.json`** (ese archivo se versiona):
   vive en `config/clave_red.key`, con permisos solo para tu usuario. Si usas el
   modo red entre dos equipos, copia ese archivo a los dos.
+  Ojo: los permisos por usuario dependen del sistema de archivos (NTFS los
+  soporta; exFAT no tiene ACLs, así que en un disco exFAT la protección real
+  es que el archivo no se versiona).
 - Validación de rutas contra escape de directorio y contención física del
   destino (`SEG-04`, `SEG-05`).
 - Respaldos protegidos con permisos restrictivos (`0700` carpetas, `0600` zips).
