@@ -1,3 +1,17 @@
 # Archivos personales y documentos excluidos del repositorio
 
 /ignorados/
+
+# Bytecode de Python (se regenera solo)
+/__pycache__/
+*.pyc
+
+# Artefactos de PyInstaller
+build/
+dist/
+
+# Clave de red: nunca se versiona (vive junto al config, con permisos restringidos)
+clave_red.key
+
+# Respaldos generados en caliente
+/Respaldos/

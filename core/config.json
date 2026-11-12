@@ -7,7 +7,7 @@
   "tamano_buffer_mb": 8,
   "guardar_estado_respaldos": true,
   "auto_ajustar_hilos": false,
-  "ruta_base_respaldos": "C:\\Users\\Oscar\\AppData\\Local\\Temp\\fase2_destino_90db4_e5",
+  "ruta_base_respaldos": "Respaldos",
   "tema_oscuro": false,
   "red_clave": "",
   "red_bind_ip": "",
