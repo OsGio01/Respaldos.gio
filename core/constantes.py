@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Rutas y constantes del programa Respaldos.Gio (nucleo v6.1)."""
+"""Rutas y constantes del programa Respaldos.Gio (nucleo v6.2)."""
 import os
 import struct
 import sys
 
-VERSION_PROGRAMA = "6.1"
+VERSION_PROGRAMA = "6.2"
 RED_CLAVE_MIN = 12  # SEG-03: longitud minima de la clave de red
 MAX_WORKERS = min(32, (os.cpu_count() or 2) * 2)
 BUFFER_SIZE = 1024 * 1024

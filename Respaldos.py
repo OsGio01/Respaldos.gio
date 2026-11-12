@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Respaldos.Gio - fachada principal del front de terminal (v6.1).
+"""Respaldos.Gio - fachada principal del front de terminal (v6.2).
 
 Delega en el front de terminal del nucleo OOP. Toda la logica vive en `core`.
 """

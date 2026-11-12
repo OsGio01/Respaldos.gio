@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Estados de respaldo y bitacora de hechos (nucleo v6.1)."""
+"""Estados de respaldo y bitacora de hechos (nucleo v6.2)."""
 import hashlib
 import json
 import os

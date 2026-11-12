@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Prueba de Respaldos.Gio v6.1 (ver Pruebas/README.md)
-"""Prueba Fase 3: front celular con menu hamburguesa (v6.1)."""
+# Prueba de Respaldos.Gio v6.2 (ver Pruebas/README.md)
+"""Prueba Fase 3: front celular con menu hamburguesa (v6.2)."""
 
 import os
 import sys

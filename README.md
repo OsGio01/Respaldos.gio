@@ -11,9 +11,9 @@ dispuso en **tres frentes**: terminal, escritorio y celular.
 
 | Versión | Cómo se arranca | Ejecutable |
 |---|---|---|
-| **Terminal** | `python Respaldos.py` | `Ejecutables/Respaldosterminal6.1/Respaldos.gio-Terminal6.1.exe` |
-| **Escritorio (HUD)** | `python RespaldosTkinter.py` (o `python main.py`) | `Ejecutables/RespaldosInterface6.1/Respaldos.Gio6.1.exe` |
-| **Celular** | `python RespaldosMovil.py` | `Ejecutables/Respaldoscelular6.1/RespaldosCelular6.1.exe` |
+| **Terminal** | `python Respaldos.py` | `Ejecutables/Respaldosterminal6.2/Respaldos.gio-Terminal6.2.exe` |
+| **Escritorio (HUD)** | `python RespaldosTkinter.py` (o `python main.py`) | `Ejecutables/RespaldosInterface6.2/Respaldos.Gio6.2.exe` |
+| **Celular** | `python RespaldosMovil.py` | `Ejecutables/Respaldoscelular6.2/RespaldosCelular6.2.exe` |
 
 Los ejecutables son *onefile*: no necesitan instalación, pero la primera vez
 descomprimen en una carpeta temporal, así que el arranque es un poco más lento.
@@ -65,7 +65,7 @@ tocar las del usuario, define `RESPALDOS_GIO_FUENTES` con el formato
 protecciones): modo red, deduplicación por hash, respaldo por extensiones,
 XAMPP/MySQL, disco externo, listas blanca/negra y configuración avanzada. Estos
 scripts se mantienen **por separado** del núcleo, así que no heredan las
-defensas de seguridad de la v6.1 (PBKDF2, TLS + HMAC + pinning, validación de
+defensas de seguridad de la v6.2 (PBKDF2, TLS + HMAC + pinning, validación de
 rutas, permisos 0700/0600). Para respaldos importantes, usa el núcleo.
 
 ## Arquitectura
@@ -120,7 +120,7 @@ python Pruebas\run_all_tests.py --exe    # además los 3 ejecutables
 - `fronts/` — terminal, HUD y celular.
 - `Pruebas/` — pruebas del núcleo, de los frentes y de los ejecutables.
 - `windows/`, `Linux/`, `macOS/` — versión mínima de terminal, sin Python.
-- `Ejecutables/` — los tres ejecutables 6.1 con su icono y su `config.json`.
+- `Ejecutables/` — los tres ejecutables 6.2 con su icono y su `config.json`.
 - `IMG/` — `icono.png`, `interface.png` y los `.ico` multi-tamaño.
 - `config.json`, `config/`, `rutas_respaldo.txt`, `lista_blanca.txt`,
   `lista_negra.txt` — configuración y registros del sistema.
@@ -134,15 +134,15 @@ Para reconstruirlos hay que pasar `dist` y `build` de forma explícita (PyInstal
 los deja en el directorio de trabajo actual, no en el del `.spec`):
 
 ```powershell
-python -m PyInstaller --noconfirm --clean --distpath Ejecutables\RespaldosInterface6.1\dist `
-  --workpath Ejecutables\RespaldosInterface6.1\build `
-  Ejecutables\RespaldosInterface6.1\Respaldos.Gio.spec
+python -m PyInstaller --noconfirm --clean --distpath Ejecutables\RespaldosInterface6.2\dist `
+  --workpath Ejecutables\RespaldosInterface6.2\build `
+  Ejecutables\RespaldosInterface6.2\Respaldos.Gio.spec
 ```
 
 O, más cómodo, todo de corrido:
 
 ```powershell
-python Ejecutables\construir_6.1.py
+python Ejecutables\construir_6.2.py
 ```
 
 Ese script reconstruye los tres, deja cada `.exe` junto a su `.spec` y borra las
@@ -156,6 +156,6 @@ carpetas temporales de `build/`.
 - `ignorados/Informe_Auditoria_Respaldos_27-10-2026.md` — auditoría de
   seguridad y rendimiento.
 - `ignorados/Pruebas/Cambios_2026-11-11.txt` — bitácora de los cambios de la
-  versión 6.1.
+  versión 6.2.
 - `ignorados/scripts_v5/LEEME.txt` — por qué se archivaron los scripts nativos
   v1.0/v2.0 de PowerShell y bash.

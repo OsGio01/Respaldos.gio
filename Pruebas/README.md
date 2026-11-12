@@ -1,6 +1,6 @@
 # Pruebas
 
-Pruebas de Respaldos.Gio v6.1. Viven en el repo para que cualquiera pueda
+Pruebas de Respaldos.Gio v6.2. Viven en el repo para que cualquiera pueda
 correrlas; todas usan rutas relativas (no dependen de dónde esté el proyecto).
 
 ## Correr todo
@@ -30,7 +30,9 @@ python Pruebas\run_all_tests.py --exe
 | `test_fase2.py` | Configuración: botón deslizante, control de hilos y burbujas ℹ️ |
 | `test_fase3.py` | Front celular: menú hamburguesa, drawer y navegación |
 | `test_ventana.py` | Que la ventana del escritorio abra con el tamano correcto |
-| `tests_seguridad_rendimiento.py` | Suite de seguridad (17 pruebas) y rendimiento |
+| `tests_seguridad_rendimiento.py` | Suite de seguridad (22 pruebas) y rendimiento |
+| `test_scripts_minimos.py` | Los scripts sin Python: respaldo, reanudar y eliminar (Windows y bash) |
+| `test_red_e2e.py` | Modo red de punta a punta: TLS + HMAC + PIN y transferencia de archivos |
 | `verif_iconos_exe.py` | Que los 3 exe lleven el icono HD (16 a 256 px) |
 | `test_exe_terminal.py` | El exe de terminal arranca, muestra el menú y sale con código 0 |
 | `test_exe_gui.py` | El exe de escritorio abre su ventana y cierra limpio |

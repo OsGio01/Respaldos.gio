@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Front de escritorio del programa Respaldos.Gio (v6.1).
+"""Front de escritorio del programa Respaldos.Gio (v6.2).
 
 Ventana de escritorio con barra lateral de navegacion, panel contextual,
 barra de progreso, anillo de estado y registro estilo consola. Tema oscuro
@@ -670,7 +670,7 @@ FronteHUD = Aplicacion
 
 
 def iniciar_hud() -> None:
-    """Arranca el front de escritorio (entry grafico de v6.1)."""
+    """Arranca el front de escritorio (entry grafico de v6.2)."""
     config = configuracion.Configuracion.cargar()
     if not os.path.isabs(config.ruta_base_respaldos) or config.ruta_base_respaldos == "Respaldos":
         config.ruta_base_respaldos = constantes.RUTA_RESPALDOS

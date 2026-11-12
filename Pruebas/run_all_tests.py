@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Bateria de pruebas de Respaldos.Gio v6.1.
+"""Bateria de pruebas de Respaldos.Gio v6.2.
 
 Uso:
     python Pruebas\\run_all_tests.py            # nucleo y frentes
@@ -40,6 +40,7 @@ PRUEBAS = [
     ("VENTANA", "test_ventana.py"),
     ("SEGURIDAD", "tests_seguridad_rendimiento.py"),
     ("SCRIPTS MINIMOS", "test_scripts_minimos.py"),
+    ("RED E2E", "test_red_e2e.py"),
 ]
 
 PRUEBAS_EXE = [

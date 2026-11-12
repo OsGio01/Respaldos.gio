@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Prueba de Respaldos.Gio v6.1 (ver Pruebas/README.md)
+# Prueba de Respaldos.Gio v6.2 (ver Pruebas/README.md)
 """Verifica que los 3 exe lleven el icono HD (pide el tamano 256 al SO)."""
 
 import os

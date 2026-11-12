@@ -1,4 +1,4 @@
-"""Nucleo del programa Respaldos.Gio (v6.1 - Programacion Orientada a Objetos)."""
+"""Nucleo del programa Respaldos.Gio (v6.2 - Programacion Orientada a Objetos)."""
 from core import constantes, configuracion, estados, escaneo, fuentes, motor, progreso, red, persistencia, seguridad, utilidades
 from core.configuracion import Configuracion, cargar_config
 from core.estados import EstadoRespaldo, GestorEstados, RegistroHechos

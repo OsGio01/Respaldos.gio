@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Front basico de terminal del programa Respaldos.Gio (v6.1).
+"""Front basico de terminal del programa Respaldos.Gio (v6.2).
 
 Delega TODOS los pasos de negocio en el nucleo OOP (`core`); esta capa solo
 presenta menus, pide datos y muestra salidas.

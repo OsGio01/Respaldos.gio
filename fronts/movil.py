@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Front movil del programa Respaldos.Gio (v6.1).
+"""Front movil del programa Respaldos.Gio (v6.2).
 
 `AplicacionMovil` es la ventana celular: reutiliza TODO el nucleo del front
 de escritorio (`fronts.hud.Aplicacion`: workers, pedidos, registro, refresco)
@@ -362,7 +362,7 @@ class FronteMovil:
 
 
 def iniciar_movil() -> None:
-    """Arranca el front celular (entry movil de v6.1)."""
+    """Arranca el front celular (entry movil de v6.2)."""
     config = configuracion.Configuracion.cargar()
     if not os.path.isabs(config.ruta_base_respaldos) or config.ruta_base_respaldos == "Respaldos":
         config.ruta_base_respaldos = constantes.RUTA_RESPALDOS

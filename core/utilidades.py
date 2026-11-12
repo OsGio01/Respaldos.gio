@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Utilidades varias del programa (nucleo v6.1)."""
+"""Utilidades varias del programa (nucleo v6.2)."""
 import os
 import platform
 import re

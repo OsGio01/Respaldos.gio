@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Seguridad: permisos, hashes, errores amigables, clave de red, TLS y PIN (nucleo v6.1)."""
+"""Seguridad: permisos, hashes, errores amigables, clave de red, TLS y PIN (nucleo v6.2)."""
 import hashlib
 import hmac
 import os
@@ -322,6 +322,16 @@ def _borrar_clave_red(ruta_config: str = None) -> bool:
         return False
 
 
+def _clave_red_desde_texto(texto: str) -> bytes:
+    """Deriva la clave de red a partir de una frase.
+
+    OJO: servidor y cliente TIENEN que usar exactamente esta misma
+    derivacion, o el handshake nunca coincidiria.
+    """
+    return hashlib.pbkdf2_hmac("sha256", (texto or "").encode("utf-8"),
+                               b"Respaldos.Gio", 100_000, dklen=32)
+
+
 def _clave_red_bytes(config) -> bytes:
     import secrets
     if not config.red_clave:
@@ -330,8 +340,7 @@ def _clave_red_bytes(config) -> bytes:
             config.guardar()
         except OSError:
             pass
-    import hashlib
-    return hashlib.pbkdf2_hmac("sha256", config.red_clave.encode("utf-8"), b"Respaldos.Gio", 100_000, dklen=32)
+    return _clave_red_desde_texto(config.red_clave)
 
 
 def _binding_tls(sock: socket.socket) -> bytes:
@@ -380,7 +389,12 @@ def _handshake_cliente(sock: socket.socket, clave: bytes) -> None:
         raise ConnectionError("el servidor rechazo la autenticacion (clave incorrecta)")
 
 
-def _intentar_tls_servidor():
+def _intentar_tls_servidor(ruta_base: str = None):
+    """Prepara el contexto TLS del servidor (certificado autofirmado).
+
+    ruta_base permite usar otra carpeta (por ejemplo una temporal en las
+    pruebas) en vez de la carpeta de la aplicacion.
+    """
     try:
         from cryptography import x509
         from cryptography.x509.oid import NameOID
@@ -389,8 +403,9 @@ def _intentar_tls_servidor():
         import datetime as _dt
     except ImportError:
         return None
-    cert_path = os.path.join(constantes.RUTA_APP, "servidor_red.crt")
-    key_path = os.path.join(constantes.RUTA_APP, "servidor_red.key")
+    base = ruta_base or constantes.RUTA_APP
+    cert_path = os.path.join(base, "servidor_red.crt")
+    key_path = os.path.join(base, "servidor_red.key")
     if not (os.path.exists(cert_path) and os.path.exists(key_path)):
         for p in (cert_path, key_path):
             try:
@@ -472,9 +487,14 @@ def _huella_cert(sock: socket.socket) -> Optional[str]:
         return None
 
 
-def _verificar_pin(ip: str, huella: str) -> bool:
-    """TOFU: primera vez pide confirmacion; si cambia, alerta y exige confirmacion."""
-    datos = persistencia.cargar_json(constantes.RUTA_PINNING, {})
+def _verificar_pin(ip: str, huella: str, ruta_pin: str = None) -> bool:
+    """TOFU: primera vez pide confirmacion; si cambia, alerta y exige confirmacion.
+
+    ruta_pin permite usar otro archivo (por ejemplo una temporal en las
+    pruebas) en vez del archivo de la aplicacion.
+    """
+    ruta = ruta_pin or constantes.RUTA_PINNING
+    datos = persistencia.cargar_json(ruta, {})
     if not isinstance(datos, dict):
         datos = {}
     conocida = datos.get(ip)
@@ -487,8 +507,8 @@ def _verificar_pin(ip: str, huella: str) -> bool:
             return False
         datos[ip] = huella
         try:
-            persistencia.guardar_json(constantes.RUTA_PINNING, datos)
-            _restringir_permisos(constantes.RUTA_PINNING)
+            persistencia.guardar_json(ruta, datos)
+            _restringir_permisos(ruta)
         except OSError:
             pass
         return True
@@ -503,7 +523,7 @@ def _verificar_pin(ip: str, huella: str) -> bool:
         return False
     datos[ip] = huella
     try:
-        persistencia.guardar_json(constantes.RUTA_PINNING, datos)
+        persistencia.guardar_json(ruta, datos)
     except OSError:
         pass
     return True

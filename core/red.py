@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Modo red interna: servidor y cliente con TLS + HMAC + PIN (nucleo v6.1)."""
+"""Modo red interna: servidor y cliente con TLS + HMAC + PIN (nucleo v6.2)."""
 import os
 import socket
 import ssl
@@ -8,6 +8,155 @@ import time
 from typing import Optional
 
 from core import constantes, escaneo, fuentes, motor, progreso, seguridad, utilidades
+
+
+# ==================================================================
+#  Piezas del canal seguro (separadas para poder probarlas solas)
+# ==================================================================
+def _enviar_archivos(conn: socket.socket, archivos, config) -> None:
+    """Envia la lista de archivos por un canal ya autenticado.
+
+    archivos: lista de (ruta, nombre_relativo, tamano).
+    """
+    conn.settimeout(120)
+    conn.sendall(constantes.ENC_TOTAL.pack(len(archivos)))
+    prog = progreso.Progreso(len(archivos), sum(s for _, _, s in archivos), "Enviando",
+                             silencioso=not config.mostrar_progreso)
+    for ruta, rel, _ in archivos:
+        try:
+            f = open(ruta, "rb")
+        except OSError:
+            prog.archivo_listo()
+            continue
+        with f:
+            real = os.fstat(f.fileno()).st_size
+            nombre = rel.encode("utf-8")
+            conn.sendall(constantes.ENC_ARCHIVO.pack(len(nombre), real) + nombre)
+            if real:
+                if conn.sendfile(f, count=real) != real:
+                    raise ConnectionError(f"el archivo cambio mientras se enviaba: {rel}")
+            prog.sumar_bytes(real)
+        prog.archivo_listo()
+        prog.mostrar()
+    conn.sendall(constantes.ENC_ARCHIVO.pack(0, 0))
+    prog.cerrar()
+
+
+def _recibir_archivos(sock: socket.socket, destino, motor_obj, config, ip):
+    """Recibe los archivos del canal autenticado y los guarda.
+
+    Devuelve (carpeta, recibidos, bytes, errores).
+    """
+    carpeta = None
+    recibidos = tam_total = 0
+    errores_red = []
+    inicio = time.time()
+    try:
+        total = constantes.ENC_TOTAL.unpack(
+            seguridad._recibir_exacto(sock, constantes.ENC_TOTAL.size))[0]
+        print(f"Recibiendo {total} archivos...")
+        carpeta = motor.crear_carpeta_respaldo(destino, config.proteger_respaldos)
+        prog = progreso.Progreso(total, 0, "Descargando",
+                                  silencioso=not config.mostrar_progreso)
+        buf = bytearray(max(256 * 1024, (config.tamano_buffer_mb or 8) * 1024 * 1024))
+        vista = memoryview(buf)
+        carpetas_ok = set()
+        while True:
+            largo, size = constantes.ENC_ARCHIVO.unpack(
+                seguridad._recibir_exacto(sock, constantes.ENC_ARCHIVO.size))
+            if largo == 0:
+                break
+            rel = seguridad._recibir_exacto(sock, largo).decode("utf-8", "replace")
+            destino_archivo = seguridad._ruta_segura(carpeta, rel)
+            guardado_ok = False
+            f = None
+            if destino_archivo:
+                try:
+                    d = os.path.dirname(destino_archivo)
+                    if d not in carpetas_ok:
+                        os.makedirs(d, exist_ok=True)
+                        carpetas_ok.add(d)
+                    f = open(destino_archivo, "wb")
+                    guardado_ok = True
+                except OSError as e:
+                    errores_red.append((rel, seguridad.motivo_corto(e)))
+                    f = None
+                    guardado_ok = False
+            else:
+                errores_red.append((rel, "ruta no permitida (bloqueada)"))
+            try:
+                restante = size
+                while restante:
+                    n = sock.recv_into(vista[:min(len(buf), restante)])
+                    if not n:
+                        raise ConnectionError("el otro equipo cerro la conexion")
+                    if f:
+                        try:
+                            f.write(vista[:n])
+                        except OSError as e:
+                            errores_red.append((rel, seguridad.motivo_corto(e)))
+                            try:
+                                f.close()
+                            except OSError:
+                                pass
+                            f = None
+                            guardado_ok = False
+                    restante -= n
+                    prog.sumar_bytes(n)
+            finally:
+                if f:
+                    try:
+                        f.close()
+                    except OSError:
+                        pass
+            if guardado_ok:
+                recibidos += 1
+                tam_total += size
+            prog.archivo_listo()
+            prog.mostrar()
+        prog.cerrar()
+    finally:
+        pass
+    if errores_red:
+        print(f"{utilidades.icono('⚠️ ', '[AVISO] ')}{len(errores_red)} archivo(s) del servidor NO se guardaron "
+              f"(ruta no permitida o error de escritura); detalle en backup_info.json")
+    motor_obj.finalizar(carpeta, "red_general", ip, recibidos, tam_total,
+                        time.time() - inicio, errores_red, f"{recibidos} archivos")
+    return carpeta, recibidos, tam_total, errores_red
+
+
+def _conectar_cliente(ip: str, puerto: int, config, clave: bytes,
+                       ruta_pin: str = None) -> socket.socket:
+    """Conecta al servidor: TLS, verificacion de huella (TOFU) y handshake."""
+    sock = socket.create_connection((ip, puerto),
+                                    timeout=constantes.NETWORK_TIMEOUT_AUTH)
+    if config.red_usar_tls:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        sock = ctx.wrap_socket(sock, server_hostname=ip)
+    if config.red_usar_tls:
+        huella = seguridad._huella_cert(sock)
+        if not huella:
+            sock.close()
+            raise ConnectionError("no se pudo obtener el certificado del servidor")
+        if not seguridad._verificar_pin(ip, huella, ruta_pin):
+            sock.close()
+            raise ConnectionError("conexion abortada por verificacion de identidad")
+    sock.settimeout(120)
+    sock.sendall(constantes.MAGIA_RED)
+    seguridad._handshake_cliente(sock, clave)
+    return sock
+
+
+def _autenticar_candidato(crudo: socket.socket, tls_ctx, clave: bytes):
+    """Aplica TLS y autentica un socket ya aceptado. Devuelve el socket."""
+    crudo.settimeout(constantes.NETWORK_TIMEOUT_SERVIDOR_AUTH)
+    candidata = tls_ctx.wrap_socket(crudo, server_side=True) if tls_ctx is not None else crudo
+    if seguridad._recibir_exacto(candidata, len(constantes.MAGIA_RED)) != constantes.MAGIA_RED:
+        raise ConnectionError("protocolo o version distintos")
+    seguridad._handshake_servidor(candidata, clave)
+    return candidata
 
 
 def servidor_red(config) -> None:
@@ -75,12 +224,7 @@ def servidor_red(config) -> None:
                 continue
             ip_origen = addr[0]
             try:
-                crudo.settimeout(constantes.NETWORK_TIMEOUT_SERVIDOR_AUTH)
-                candidata = tls_ctx.wrap_socket(crudo, server_side=True) if tls_ctx is not None else crudo
-                if seguridad._recibir_exacto(candidata, len(constantes.MAGIA_RED)) != constantes.MAGIA_RED:
-                    raise ConnectionError("protocolo o version distintos")
-                seguridad._handshake_servidor(candidata, clave)
-                conn = candidata
+                conn = _autenticar_candidato(crudo, tls_ctx, clave)
             except (ssl.SSLError, ConnectionError, OSError) as e:
                 fallos_por_ip[ip_origen] = fallos_por_ip.get(ip_origen, 0) + 1
                 print(f"Conexion de {ip_origen} descartada ({type(e).__name__}); sigo esperando...")
@@ -92,28 +236,7 @@ def servidor_red(config) -> None:
                     pass
         with conn:
             print(f"Cliente autenticado desde {addr[0]}")
-            conn.settimeout(120)
-            conn.sendall(constantes.ENC_TOTAL.pack(len(archivos)))
-            prog = progreso.Progreso(len(archivos), sum(s for _, _, s in archivos), "Enviando",
-                                    silencioso=not config.mostrar_progreso)
-            for ruta, rel, _ in archivos:
-                try:
-                    f = open(ruta, "rb")
-                except OSError:
-                    prog.archivo_listo()
-                    continue
-                with f:
-                    real = os.fstat(f.fileno()).st_size
-                    nombre = rel.encode("utf-8")
-                    conn.sendall(constantes.ENC_ARCHIVO.pack(len(nombre), real) + nombre)
-                    if real:
-                        if conn.sendfile(f, count=real) != real:
-                            raise ConnectionError(f"el archivo cambio mientras se enviaba: {rel}")
-                    prog.sumar_bytes(real)
-                prog.archivo_listo()
-                prog.mostrar()
-            conn.sendall(constantes.ENC_ARCHIVO.pack(0, 0))
-            prog.cerrar()
+            _enviar_archivos(conn, archivos, config)
     finally:
         srv.close()
     print(f"{utilidades.icono('✅', 'OK')} Transferencia completada.")
@@ -129,121 +252,30 @@ def cliente_red(config, motor_obj) -> None:
     if not clave_txt:
         print("Se requiere la clave de red para autenticarse.")
         return
-    import hashlib
-    clave = hashlib.sha256(clave_txt.encode("utf-8")).digest()
+    # La derivacion tiene que ser EXACTAMENTE la misma que usa el servidor.
+    clave = seguridad._clave_red_desde_texto(clave_txt)
     if not config.red_usar_tls:
         print("AVISO: TLS está desactivado. Todo lo que recibas viaja SIN CIFRAR por la red.")
         if utilidades.pedir("¿Continuar sin TLS? (s/N): ").strip().lower() not in ("s", "si", "sí", "y", "yes"):
             return
 
     destino = fuentes.pedir_destino(config)
-    sock = socket.create_connection((ip, constantes.NETWORK_PORT), timeout=constantes.NETWORK_TIMEOUT_AUTH)
-
-    if config.red_usar_tls:
-        try:
-            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            sock = ctx.wrap_socket(sock, server_hostname=ip)
-        except ssl.SSLError as e:
-            print(f"Error TLS: {e}")
-            print("Se aborta la conexión. Desactiva 'red_usar_tls' en configuración si quieres ir en claro.")
-            try:
-                sock.close()
-            except OSError:
-                pass
-            return
-
-    if config.red_usar_tls:
-        huella = seguridad._huella_cert(sock)
-        if not huella:
-            print("No se pudo obtener el certificado del servidor. Se aborta.")
-            try:
-                sock.close()
-            except OSError:
-                pass
-            return
-        if not seguridad._verificar_pin(ip, huella):
-            print("Conexión abortada por verificación de identidad del servidor.")
-            try:
-                sock.close()
-            except OSError:
-                pass
-            return
-
-    carpeta = None
     try:
-        sock.settimeout(120)
-        sock.sendall(constantes.MAGIA_RED)
-        seguridad._handshake_cliente(sock, clave)
-        total = constantes.ENC_TOTAL.unpack(seguridad._recibir_exacto(sock, constantes.ENC_TOTAL.size))[0]
-        print(f"Recibiendo {total} archivos...")
-        carpeta = motor.crear_carpeta_respaldo(destino, config.proteger_respaldos)
-        prog = progreso.Progreso(total, 0, "Descargando", silencioso=not config.mostrar_progreso)
-        buf = bytearray(max(256 * 1024, (config.tamano_buffer_mb or 8) * 1024 * 1024))
-        vista = memoryview(buf)
-        carpetas_ok = set()
-        recibidos = tam_total = 0
-        errores_red = []
-        inicio = time.time()
-        while True:
-            largo, size = constantes.ENC_ARCHIVO.unpack(seguridad._recibir_exacto(sock, constantes.ENC_ARCHIVO.size))
-            if largo == 0:
-                break
-            rel = seguridad._recibir_exacto(sock, largo).decode("utf-8", "replace")
-            destino_archivo = seguridad._ruta_segura(carpeta, rel)
-            guardado_ok = False
-            f = None
-            if destino_archivo:
-                try:
-                    d = os.path.dirname(destino_archivo)
-                    if d not in carpetas_ok:
-                        os.makedirs(d, exist_ok=True)
-                        carpetas_ok.add(d)
-                    f = open(destino_archivo, "wb")
-                    guardado_ok = True
-                except OSError as e:
-                    errores_red.append((rel, seguridad.motivo_corto(e)))
-                    f = None
-                    guardado_ok = False
-            else:
-                errores_red.append((rel, "ruta no permitida (bloqueada)"))
-            try:
-                restante = size
-                while restante:
-                    n = sock.recv_into(vista[:min(len(buf), restante)])
-                    if not n:
-                        raise ConnectionError("el otro equipo cerro la conexion")
-                    if f:
-                        try:
-                            f.write(vista[:n])
-                        except OSError as e:
-                            errores_red.append((rel, seguridad.motivo_corto(e)))
-                            try:
-                                f.close()
-                            except OSError:
-                                pass
-                            f = None
-                            guardado_ok = False
-                    restante -= n
-                    prog.sumar_bytes(n)
-            finally:
-                if f:
-                    try:
-                        f.close()
-                    except OSError:
-                        pass
-            if guardado_ok:
-                recibidos += 1
-                tam_total += size
-            prog.archivo_listo()
-            prog.mostrar()
-        prog.cerrar()
-        if errores_red:
-            print(f"{utilidades.icono('⚠️ ', '[AVISO] ')}{len(errores_red)} archivo(s) del servidor NO se guardaron "
-                  f"(ruta no permitida o error de escritura); detalle en backup_info.json")
-        motor_obj.finalizar(carpeta, "red_general", ip, recibidos, tam_total, time.time() - inicio,
-                            errores_red, f"{recibidos} archivos")
+        sock = _conectar_cliente(ip, constantes.NETWORK_PORT, config, clave)
+    except ssl.SSLError as e:
+        print(f"Error TLS: {e}")
+        print("Se aborta la conexión. Desactiva 'red_usar_tls' en configuración si quieres ir en claro.")
+        return
+    except ConnectionError as e:
+        print(f"Conexión abortada: {e}")
+        return
+    except OSError as e:
+        print(f"No se pudo conectar con {ip}: {e}")
+        return
+
+    try:
+        carpeta, recibidos, tam_total, errores_red = _recibir_archivos(
+            sock, destino, motor_obj, config, ip)
         print(f"{utilidades.icono('✅', 'OK')} Respaldo remoto completado en {carpeta}")
     finally:
         sock.close()
