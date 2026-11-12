@@ -1,0 +1,19 @@
+# Fin de linea por tipo de archivo (el proyecto corre en Windows, Linux y macOS)
+
+* text=auto
+
+# Scripts de shell: deben quedar con LF o bash dice "\r: command not found"
+*.sh text eol=lf
+*.command text eol=lf
+
+# Scripts de Windows
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Codigo de Python
+*.py text eol=crlf
+
+# Los .ico son binarios
+*.ico binary
+*.png binary
+*.exe binary
