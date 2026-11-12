@@ -69,19 +69,26 @@ class Configuracion:
     def cargar(cls, ruta: str = constantes.RUTA_CONFIG) -> "Configuracion":
         datos = persistencia.cargar_json(ruta, None)
         inst = cls()
-        if not isinstance(datos, dict):
-            return inst
-        for k, v in datos.items():
-            if k in cls.__annotations__:
-                try:
-                    setattr(inst, k, _validar_campo(k, v, getattr(inst, k)))
-                except Exception:
-                    pass
+        if isinstance(datos, dict):
+            for k, v in datos.items():
+                if k in cls.__annotations__:
+                    try:
+                        setattr(inst, k, _validar_campo(k, v, getattr(inst, k)))
+                    except Exception:
+                        pass
+        # La clave de red no viaja en el config (se versiona): vive aparte.
+        if not inst.red_clave:
+            inst.red_clave = seguridad._leer_clave_red(ruta)
         return inst
 
     def guardar(self, ruta: str = constantes.RUTA_CONFIG) -> None:
-        persistencia.guardar_json(ruta, asdict(self))
+        datos = asdict(self)
+        clave = datos.get("red_clave", "")
+        datos["red_clave"] = ""  # el config queda sin el secreto
+        persistencia.guardar_json(ruta, datos)
         seguridad._restringir_permisos(ruta)
+        # La clave se guarda en el archivo protegido con permisos restringidos.
+        seguridad._guardar_clave_red(clave, ruta)
 
 
 def cargar_config(ruta: str = constantes.RUTA_CONFIG) -> Configuracion:

@@ -124,6 +124,53 @@ def _detectar_ip_local() -> Optional[str]:
         return None
 
 
+def ruta_clave_red(ruta_config: str = None) -> str:
+    """Ruta del archivo protegido donde vive la clave de red.
+
+    El config.json se versiona, asi que la clave no debe viajar ahi: vive en
+    <carpeta del config>/config/clave_red.key, con permisos solo del usuario.
+    """
+    base = os.path.dirname(os.path.abspath(ruta_config or constantes.RUTA_CONFIG))
+    return os.path.join(base, "config", "clave_red.key")
+
+
+def _leer_clave_red(ruta_config: str = None) -> str:
+    """Lee la clave de red del archivo protegido. Vacio si no existe."""
+    try:
+        with open(ruta_clave_red(ruta_config), "r", encoding="utf-8") as f:
+            clave = f.read().strip()
+    except OSError:
+        return ""
+    return clave if len(clave) >= constantes.RED_CLAVE_MIN else ""
+
+
+def _guardar_clave_red(clave: str, ruta_config: str = None) -> bool:
+    """Guarda la clave de red en el archivo protegido (0600 / solo el usuario).
+
+    Con clave vacia borra el archivo (el usuario limpio su clave).
+    Con clave demasiado corta no toca nada.
+    """
+    ruta = ruta_clave_red(ruta_config)
+    clave = (clave or "").strip()
+    if not clave:
+        try:
+            if os.path.exists(ruta):
+                os.remove(ruta)
+            return True
+        except OSError:
+            return False
+    if len(clave) < constantes.RED_CLAVE_MIN:
+        return False
+    try:
+        os.makedirs(os.path.dirname(ruta), exist_ok=True)
+        with open(ruta, "w", encoding="utf-8") as f:
+            f.write(clave)
+    except OSError:
+        return False
+    _restringir_permisos(ruta)
+    return True
+
+
 def _clave_red_bytes(config) -> bytes:
     import secrets
     if not config.red_clave:

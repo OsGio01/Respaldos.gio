@@ -27,6 +27,7 @@ RUTA_CONFIG = os.path.join(RUTA_APP, "config.json")
 RUTA_ESTADOS = os.path.join(RUTA_APP, "estados_respaldo.json")
 RUTA_REGISTRO = os.path.join(RUTA_APP, "rutas_respaldo.txt")
 RUTA_CONFIG_DIR = os.path.join(RUTA_APP, "config")
+RUTA_CLAVE_RED = os.path.join(RUTA_CONFIG_DIR, "clave_red.key")  # clave de red, fuera del config versionado
 RUTA_ESTADOS_DIR = os.path.join(RUTA_APP, "estados")
 RUTA_NOMBRES_GENERADOS = os.path.join(RUTA_APP, "respaldos_generados.json")
 RUTA_ULTIMO_RESPALDO = os.path.join(RUTA_APP, "ultimo_respaldo.txt")
