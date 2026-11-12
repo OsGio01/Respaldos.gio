@@ -5,3 +5,5 @@
 2026-11-03T21:17:02.141158|C:\Users\Oscar\AppData\Local\Temp\hud_destino_68hg6trf\Oscar_MSI_20261103_211701|general|1 carpetas, 4 archivos
 2026-11-03T21:19:05.875056|C:\Users\Oscar\AppData\Local\Temp\hud_destino_nn34mjny\Oscar_MSI_20261103_211905|general|1 carpetas, 4 archivos
 2026-11-03T23:14:10.650150|C:\Users\Oscar\AppData\Local\Temp\hud_destino_udznejey\Oscar_MSI_20261103_231410|general|1 carpetas, 4 archivos
+2026-11-11T20:35:04.395707|C:\Users\Oscar\AppData\Local\Temp\hud_destino_u3i4vji2\Oscar_MSI_20261111_203504|general|1 carpetas, 4 archivos
+2026-11-11T20:35:32.105021|C:\Users\Oscar\AppData\Local\Temp\movil_destino_a3286h6b\Oscar_MSI_20261111_203531|general|1 carpetas, 4 archivos

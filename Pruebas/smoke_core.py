@@ -64,7 +64,8 @@ print("FUENTES OK")
 
 m = MotorRespaldo(cfg, GestorEstados(os.path.join(TMP, "test_estados2.json")))
 meta = motor.generar_metadatos_respaldo(os.path.join(TMP, "o"), os.path.join(TMP, "d"), "general", 1, 10, 1.5, "completado", cfg, {"usuario": "u", "equipo": "e", "sistema": "s", "arquitectura": "x", "cpu_logico": 2, "cpu_fisico": None, "cpu_uso": 1.0, "memoria_total": 1, "memoria_disponible": 1}, {"errores": [{"archivo": "a", "motivo": "b"}]})
-assert meta["version_programa"] == "6.0"
+from core import constantes
+assert meta["version_programa"] == constantes.VERSION_PROGRAMA
 print("METADATA OK")
 
 assert callable(red.servidor_red) and callable(red.cliente_red) and callable(red.modo_red)

@@ -9,7 +9,10 @@ sys.path.insert(0, RAIZ)
 
 import subprocess, sys, os, time
 
-exe = os.path.join(RAIZ, "Ejecutables", "Respaldosterminal6.0", "Respaldos.gio-Terminal6.0.exe")
+from core import constantes
+
+V = constantes.VERSION_PROGRAMA
+exe = os.path.join(RAIZ, "Ejecutables", f"Respaldosterminal{V}", f"Respaldos.gio-Terminal{V}.exe")
 cwd = os.path.dirname(exe)
 
 proc = subprocess.Popen([exe], cwd=cwd, stdin=subprocess.PIPE,
@@ -32,7 +35,7 @@ def comprobar(cond, msg):
         fallos.append(msg)
 
 
-comprobar("6.0" in texto, "muestra la version 6.0")
+comprobar(f"v{V}" in texto or V in texto, f"muestra la version {V}")
 comprobar("RESPALDO" in texto.upper(), "muestra el menu de respaldos")
 comprobar("Salir" in texto or "SALIR" in texto, "ofrece salir")
 comprobar(proc.returncode == 0, f"salida limpia (codigo {proc.returncode})")

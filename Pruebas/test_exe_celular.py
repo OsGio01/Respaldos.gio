@@ -15,7 +15,10 @@ import time
 import ctypes
 import ctypes.wintypes as wt
 
-exe = os.path.join(RAIZ, "Ejecutables", "Respaldoscelular6.0", "RespaldosCelular6.0.exe")
+from core import constantes
+
+V = constantes.VERSION_PROGRAMA
+exe = os.path.join(RAIZ, "Ejecutables", f"Respaldoscelular{V}", f"RespaldosCelular{V}.exe")
 cwd = os.path.dirname(exe)
 
 user32 = ctypes.windll.user32
@@ -90,12 +93,12 @@ try:
     comprobar(proc.returncode == 0, f"cierra limpio (codigo {proc.returncode})")
 except subprocess.TimeoutExpired:
     # el onefile puede dejar el proceso hijo: matar todo
-    subprocess.run(["taskkill", "/F", "/IM", "RespaldosCelular6.0.exe"],
+    subprocess.run(["taskkill", "/F", "/IM", f"RespaldosCelular{V}.exe"],
                    capture_output=True)
     comprobar(False, "cierra limpio (tuvo que matarse)")
 
 # el hijo huerfano del onefile cierra con el padre o sobrevive: asegurar limpieza
-subprocess.run(["taskkill", "/F", "/IM", "RespaldosCelular6.0.exe"],
+subprocess.run(["taskkill", "/F", "/IM", f"RespaldosCelular{V}.exe"],
                capture_output=True)
 
 print()

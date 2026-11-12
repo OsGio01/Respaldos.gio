@@ -8,9 +8,20 @@ El entry vive en la raiz del proyecto (fuente unica de verdad) y el icono se
 toma de esta misma carpeta, como exige el requerimiento del icono propio.
 """
 import os
+import re
 
 # Raiz del proyecto: la carpeta de este spec esta en <raiz>/Ejecutables/<carpeta>
 RAIZ = os.path.abspath(os.path.join(SPECPATH, os.pardir, os.pardir))
+
+
+def _version():
+    """Lee la version del nucleo (fuente unica de la verdad)."""
+    with open(os.path.join(RAIZ, "core", "constantes.py"), encoding="utf-8") as f:
+        m = re.search(r'VERSION_PROGRAMA\s*=\s*"([^"]+)"', f.read())
+    return m.group(1) if m else "0.0"
+
+
+VERSION = _version()
 
 a = Analysis(
     [os.path.join(RAIZ, 'RespaldosTkinter.py')],
@@ -33,7 +44,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='Respaldos.Gio6.0',
+    name=f'Respaldos.Gio{VERSION}',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

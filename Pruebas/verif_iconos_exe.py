@@ -79,10 +79,14 @@ def mejores_tamanos(ruta):
     return sorted(hallados)
 
 
+from core import constantes
+
+V = constantes.VERSION_PROGRAMA
+
 EXES = [
-    os.path.join(RAIZ, "Ejecutables", "RespaldosInterface6.0", "Respaldos.Gio6.0.exe"),
-    os.path.join(RAIZ, "Ejecutables", "Respaldosterminal6.0", "Respaldos.gio-Terminal6.0.exe"),
-    os.path.join(RAIZ, "Ejecutables", "Respaldoscelular6.0", "RespaldosCelular6.0.exe"),
+    os.path.join(RAIZ, "Ejecutables", f"RespaldosInterface{V}", f"Respaldos.Gio{V}.exe"),
+    os.path.join(RAIZ, "Ejecutables", f"Respaldosterminal{V}", f"Respaldos.gio-Terminal{V}.exe"),
+    os.path.join(RAIZ, "Ejecutables", f"Respaldoscelular{V}", f"RespaldosCelular{V}.exe"),
 ]
 
 fallos = 0
