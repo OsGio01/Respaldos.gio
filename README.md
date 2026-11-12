@@ -35,6 +35,39 @@ Ventana angosta (420 × 760) pensada para pantallas pequeñas. Todo el menú viv
 detrás del botón **☰**, que abre un drawer con las mismas 11 opciones del
 escritorio. La barra superior es compacta: estado resumido y la ruta de destino.
 
+## Versión mínima de terminal (sin Python)
+
+Para equipos donde no hay Python instalado (o donde solo quieres una terminal
+limpia) hay una versión **mínima**, escrita en el lenguaje nativo de cada
+sistema y sin dependencias:
+
+| Sistema | Script | Cómo se arranca |
+|---|---|---|
+| Windows | `windows/Respaldos.gio.bat` → `Respaldos.gio.ps1` | doble clic en el `.bat` |
+| Linux | `Linux/respaldos.sh` | `bash Linux/respaldos.sh` |
+| macOS | `macOS/respaldos.sh` o `macOS/Respaldos.gio.command` | doble clic en el `.command` |
+
+Menu de texto con cuatro opciones: **respaldo general**, **reanudar**,
+**eliminar** y **salir**.
+
+- **Respaldo general**: copia tus carpetas (Documentos, Escritorio, Descargas,
+  Imágenes, Música y Videos) a `<destino>/Respaldo_<fecha>/` y opcionalmente
+  lo comprime en `.zip`.
+- **Reanudar**: si se interrumpió, continúa solo con lo que faltaba.
+- **Eliminar**: borra un respaldo anterior (pide escribir `BORRAR`).
+
+El destino se recuerda en `respaldos.conf` y el estado de la copia en
+`respaldos.estado`, junto al script. Para respaldar carpetas concretas sin
+tocar las del usuario, define `RESPALDOS_GIO_FUENTES` con el formato
+`Etiqueta|ruta;Etiqueta|ruta`.
+
+**Lo que no hace** (eso vive solo en el núcleo Python con todas sus
+protecciones): modo red, deduplicación por hash, respaldo por extensiones,
+XAMPP/MySQL, disco externo, listas blanca/negra y configuración avanzada. Estos
+scripts se mantienen **por separado** del núcleo, así que no heredan las
+defensas de seguridad de la v6.0 (PBKDF2, TLS + HMAC + pinning, validación de
+rutas, permisos 0700/0600). Para respaldos importantes, usa el núcleo.
+
 ## Arquitectura
 
 ```
@@ -86,6 +119,7 @@ python Pruebas\run_all_tests.py --exe    # además los 3 ejecutables
 - `core/` — núcleo OOP del programa.
 - `fronts/` — terminal, HUD y celular.
 - `Pruebas/` — pruebas del núcleo, de los frentes y de los ejecutables.
+- `windows/`, `Linux/`, `macOS/` — versión mínima de terminal, sin Python.
 - `Ejecutables/` — los tres ejecutables 6.0 con su icono y su `config.json`.
 - `IMG/` — `icono.png`, `interface.png` y los `.ico` multi-tamaño.
 - `config.json`, `config/`, `rutas_respaldo.txt`, `lista_blanca.txt`,
@@ -123,3 +157,5 @@ carpetas temporales de `build/`.
   seguridad y rendimiento.
 - `ignorados/Pruebas/Cambios_2026-11-11.txt` — bitácora de los cambios de la
   versión 6.0.
+- `ignorados/scripts_v5/LEEME.txt` — por qué se archivaron los scripts nativos
+  v1.0/v2.0 de PowerShell y bash.
