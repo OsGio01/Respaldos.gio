@@ -39,6 +39,7 @@ PRUEBAS = [
     ("FASE 3 MOVIL", "test_fase3.py"),
     ("VENTANA", "test_ventana.py"),
     ("SEGURIDAD", "tests_seguridad_rendimiento.py"),
+    ("SCRIPTS MINIMOS", "test_scripts_minimos.py"),
 ]
 
 PRUEBAS_EXE = [

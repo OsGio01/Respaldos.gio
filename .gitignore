@@ -13,5 +13,10 @@ dist/
 # Clave de red: nunca se versiona (vive junto al config, con permisos restringidos)
 clave_red.key
 
+# Estado y configuracion que generan los scripts minimos de terminal
+respaldos.conf
+respaldos.estado
+respaldos.fuentes.tmp
+
 # Respaldos generados en caliente
-/Respaldos/
+Respaldos/
