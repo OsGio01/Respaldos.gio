@@ -11,7 +11,10 @@
 *.ps1 text eol=crlf
 
 # Codigo de Python
-*.py text eol=crlf
+# LF (no CRLF): el shebang "#!/usr/bin/env python3" solo funciona si la
+# primera linea termina en LF. Con CRLF, ejecutar ./Respaldos.py en Linux o
+# macOS falla con "bad interpreter: /usr/bin/env python3\r".
+*.py text eol=lf
 
 # Los .ico son binarios
 *.ico binary

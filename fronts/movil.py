@@ -24,9 +24,10 @@ from fronts.tema import (
     COLOR_FONDO, COLOR_LOG_ACCION, COLOR_LOG_ERROR, COLOR_LOG_INFO, COLOR_LOG_OK,
     COLOR_LOG_WARN, COLOR_PANEL, COLOR_SIDEBAR, COLOR_SIDEBAR_ACTIVO,
     COLOR_SIDEBAR_HOVER, COLOR_SUBTEXTO, COLOR_TEXTO,
+    FUENTE_MONO, FUENTE_UI,
 )
 
-RUTA_ICONO_MOVIL = os.path.join(constantes.RUTA_APP, "IMG", "icono.ico")
+RUTA_ICONO_MOVIL = constantes.ruta_imagen("icono.ico")
 
 
 class _TextoCorto:
@@ -81,7 +82,11 @@ class AplicacionMovil(Aplicacion):
         try:
             self.root.iconbitmap(RUTA_ICONO_MOVIL)
         except Exception:
-            pass
+            # iconbitmap es de Windows. En Linux/macOS se usa el PNG.
+            try:
+                self.root.iconphoto(True, tk.PhotoImage(file=constantes.ruta_imagen("icono.png")))
+            except Exception:
+                pass
         self.root.protocol("WM_DELETE_WINDOW", self._al_cerrar)
 
         self._barra_superior()
@@ -95,7 +100,7 @@ class AplicacionMovil(Aplicacion):
 
         # --- boton hamburguesa
         self.btn_menu = tk.Label(top, text="\u2630", bg=COLOR_PANEL, fg=COLOR_TEXTO,
-                                 font=("Segoe UI", 15), width=2, padx=2, pady=1,
+                                 font=(FUENTE_UI, 15), width=2, padx=2, pady=1,
                                  cursor="hand2", relief="flat",
                                  highlightbackground=COLOR_BORDE, highlightthickness=1)
         self.btn_menu.pack(side="left")
@@ -104,10 +109,10 @@ class AplicacionMovil(Aplicacion):
         col = tk.Frame(top, bg=COLOR_FONDO)
         col.pack(side="left")
         tk.Label(col, text="RESPALDOS.GIO", bg=COLOR_FONDO, fg=COLOR_TEXTO,
-                 font=("Segoe UI", 12, "bold"), anchor="w").pack(anchor="w")
+                 font=(FUENTE_UI, 12, "bold"), anchor="w").pack(anchor="w")
         self.lbl_ruta = _TextoCorto(
             tk.Label(col, text="", bg=COLOR_FONDO, fg=COLOR_SUBTEXTO,
-                     font=("Segoe UI", 8), anchor="w"), 30)
+                     font=(FUENTE_UI, 8), anchor="w"), 30)
 
         der = tk.Frame(top, bg=COLOR_FONDO)
         der.pack(side="right")
@@ -116,7 +121,7 @@ class AplicacionMovil(Aplicacion):
         self.visor.pack(side="left", padx=(0, 5))
         self.lbl_estado = _TextoCorto(
             tk.Label(der, text="Listo", bg=COLOR_FONDO, fg=COLOR_TEXTO,
-                     font=("Segoe UI", 8, "bold"), anchor="e"), 16,
+                     font=(FUENTE_UI, 8, "bold"), anchor="e"), 16,
             conservar_inicio=True)
         self.lbl_estado.pack(side="left")
 
@@ -138,7 +143,7 @@ class AplicacionMovil(Aplicacion):
         self.progreso_barra.pack(side="left", fill="x", expand=True)
         self.btn_cancelar = tk.Button(marco, text="CANCELAR", command=self.cancelar_respaldo,
                                       bg=COLOR_PANEL, fg="#fca5a5", relief="flat",
-                                      cursor="hand2", font=("Segoe UI", 8, "bold"),
+                                      cursor="hand2", font=(FUENTE_UI, 8, "bold"),
                                       padx=10, pady=4, state=tk.DISABLED)
         self.btn_cancelar.pack(side="right", padx=(10, 0))
 
@@ -159,9 +164,9 @@ class AplicacionMovil(Aplicacion):
         cab = tk.Frame(self.drawer, bg=COLOR_SIDEBAR)
         cab.pack(fill="x", padx=14, pady=(14, 6))
         tk.Label(cab, text="MENU", bg=COLOR_SIDEBAR, fg=COLOR_SUBTEXTO,
-                 font=("Segoe UI", 9, "bold"), anchor="w").pack(side="left")
+                 font=(FUENTE_UI, 9, "bold"), anchor="w").pack(side="left")
         cerrar = tk.Label(cab, text="\u2715", bg=COLOR_SIDEBAR, fg=COLOR_TEXTO,
-                          font=("Segoe UI", 12), cursor="hand2")
+                          font=(FUENTE_UI, 12), cursor="hand2")
         cerrar.pack(side="right")
         cerrar.bind("<Button-1>", lambda e: self.cerrar_menu())
 
@@ -170,12 +175,12 @@ class AplicacionMovil(Aplicacion):
         for clave, texto in NAVEGACION:
             if clave == "_grupo":
                 tk.Label(scroll.interior, text=texto, bg=COLOR_SIDEBAR,
-                         fg=COLOR_SUBTEXTO, font=("Segoe UI", 8, "bold"),
+                         fg=COLOR_SUBTEXTO, font=(FUENTE_UI, 8, "bold"),
                          anchor="w").pack(fill="x", padx=16, pady=(12, 2))
                 continue
             lbl = tk.Label(scroll.interior, text=texto, bg=COLOR_SIDEBAR,
                            fg=COLOR_TEXTO if clave != "_salir" else "#f87171",
-                           font=("Segoe UI", 10), anchor="w", padx=16, pady=7,
+                           font=(FUENTE_UI, 10), anchor="w", padx=16, pady=7,
                            cursor="hand2")
             lbl.pack(fill="x")
             if clave == "_salir":
@@ -190,20 +195,20 @@ class AplicacionMovil(Aplicacion):
 
         tk.Label(self.drawer, text=f"v{constantes.VERSION_PROGRAMA}",
                  bg=COLOR_SIDEBAR, fg=COLOR_SUBTEXTO,
-                 font=("Segoe UI", 8)).pack(side="bottom", pady=10)
+                 font=(FUENTE_UI, 8)).pack(side="bottom", pady=10)
         self.drawer.place_forget()
 
     def _barra_registro(self):
         marco = tk.Frame(self.root, bg=COLOR_FONDO)
         marco.pack(fill="x", padx=12, pady=(8, 12))
         tk.Label(marco, text="REGISTRO", bg=COLOR_FONDO, fg=COLOR_SUBTEXTO,
-                 font=("Segoe UI", 8, "bold"), anchor="w").pack(anchor="w")
+                 font=(FUENTE_UI, 8, "bold"), anchor="w").pack(anchor="w")
         caja = tk.Frame(marco, bg=COLOR_PANEL,
                         highlightbackground=COLOR_BORDE, highlightthickness=1)
         caja.pack(fill="x")
         self.lista_log = tk.Listbox(caja, bg=COLOR_PANEL, fg=COLOR_LOG_INFO,
                                     relief="flat", highlightthickness=0,
-                                    height=4, font=("Consolas", 8),
+                                    height=4, font=(FUENTE_MONO, 8),
                                     selectbackground=COLOR_SIDEBAR_ACTIVO,
                                     selectforeground=COLOR_TEXTO)
         scroll = tk.Scrollbar(caja, orient="vertical", command=self.lista_log.yview)

@@ -24,6 +24,9 @@ CONSTANTES = os.path.join(RAIZ, "core", "constantes.py")
 CARPETAS = ["RespaldosInterface", "Respaldosterminal", "Respaldoscelular"]
 EXES = ["Respaldos.Gio", "Respaldos.gio-Terminal", "RespaldosCelular"]
 
+# Carpetas de ejecutables por sistema operativo (v6.2 en adelante).
+CARPETAS_SO = ["windows", "linux", "macos"]
+
 # Frases que cuentan historia y no deben cambiar.
 HISTORICO = [
     ("La versión 6.0 reescribió todo el programa", "@@HISTORICO1@@"),
@@ -56,6 +59,16 @@ def actualizar_constantes(vieja, nueva):
 
 def renombrar(vieja, nueva):
     """Renombra los ejecutables y despues las carpetas que los contienen."""
+    # Ejecutables por sistema operativo (v6.2 en adelante).
+    for so in CARPETAS_SO:
+        for base in EXES:
+            viejo = os.path.join(EJEC, so, f"{base}{vieja}.exe")
+            nuevo = os.path.join(EJEC, so, f"{base}{nueva}.exe")
+            if os.path.exists(viejo):
+                git("mv", os.path.relpath(viejo, RAIZ).replace("\\", "/"),
+                    os.path.relpath(nuevo, RAIZ).replace("\\", "/"))
+                print(f"  exe ({so}): {os.path.basename(viejo)} -> {os.path.basename(nuevo)}")
+    # Estructura anterior (una carpeta por frente), por si sigue en el repo.
     for base in EXES:
         for carpeta in CARPETAS:
             viejo = os.path.join(EJEC, f"{carpeta}{vieja}", f"{base}{vieja}.exe")
@@ -93,8 +106,7 @@ def sustituir_texto(vieja, nueva):
         for carpeta in sorted(os.listdir(EJEC)):
             config = os.path.join(EJEC, carpeta, "config.json")
             if os.path.exists(config):
-                objetivos.append(config)
-    ignorados = os.path.join(RAIZ, "ignorados")
+                objetivos.append(config)    ignorados = os.path.join(RAIZ, "ignorados")
     if os.path.isdir(ignorados):
         for f in ("AGENTS.md",):
             p = os.path.join(ignorados, f)

@@ -7,33 +7,79 @@ registra lo que hizo y —si algo se interrumpe— puede reanudar donde se qued�
 La versión 6.0 reescribió todo el programa alrededor de un **núcleo único** y lo
 dispuso en **tres frentes**: terminal, escritorio y celular.
 
-## Las tres versiones
+## Un archivo para todos los sistemas
 
-| Versión | Cómo se arranca | Ejecutable |
+La forma mas simple de usar el programa es el **archivo universal**:
+
+```
+Respaldos.pyz
+```
+
+Es un solo archivo que corre en **Windows, Linux y macOS** con cualquier
+Python 3.8 o superior, y **trae las imagenes dentro** (el logo del escritorio
+y el de la terminal). Al abrirlo pregunta que frente quieres usar.
+
+| Sistema | Cómo se arranca |
+|---|---|
+| Windows | `python Respaldos.pyz` |
+| Linux / macOS | `./Respaldos.pyz` (o `python3 Respaldos.pyz`) |
+
+No necesita PyInstaller ni compilar nada. En Linux y macOS hay que darle
+permiso una vez: `chmod +x Respaldos.pyz`.
+
+Para ver por que el programa no arranca en otra maquina:
+
+```
+python Respaldos.py --diagnostico
+```
+
+## Los tres frentes
+
+| Versión | Cómo se arranca | Qué necesita |
 |---|---|---|
-| **Terminal** | `python Respaldos.py` | `Ejecutables/Respaldosterminal6.2/Respaldos.gio-Terminal6.2.exe` |
-| **Escritorio (HUD)** | `python RespaldosTkinter.py` (o `python main.py`) | `Ejecutables/RespaldosInterface6.2/Respaldos.Gio6.2.exe` |
-| **Celular** | `python RespaldosMovil.py` | `Ejecutables/Respaldoscelular6.2/RespaldosCelular6.2.exe` |
-
-Los ejecutables son *onefile*: no necesitan instalación, pero la primera vez
-descomprimen en una carpeta temporal, así que el arranque es un poco más lento.
+| **Terminal** | `python Respaldos.py` | nada mas (no usa tkinter) |
+| **Escritorio (HUD)** | `python RespaldosTkinter.py` (o `python main.py`) | `python3-tk` |
+| **Celular** | *plantilla, no se distribuye* | ver `docs/MOVIL.md` |
 
 ### Terminal
 
-Menú de texto con todas las opciones. Es la versión más completa para trabajar
-en consola.
+Menu de texto con todas las opciones. Es la version mas completa para trabajar
+en consola y **funciona en cualquier sistema con Python**, sin dependencias
+de interfaz grafica (importante en Android/Termux y en servidores).
 
 ### Escritorio (HUD)
 
-Ventana con paneles, barra de progreso, tarjetas de estado y **Configuración**
-con botón deslizante, control de hilos y nivel de compresión. Cada control
-tiene su ícono ℹ️ con una burbuja de ayuda.
+Ventana con paneles, barra de progreso, tarjetas de estado y **Configuracion**
+con boton deslizante, control de hilos y nivel de compresion. Cada control
+tiene su icono con una burbuja de ayuda.
+
+En Linux y macOS necesita `python3-tk` (`sudo apt install python3-tk`).
+Si falta, el programa avisa y sigue funcionando en terminal.
 
 ### Celular
 
-Ventana angosta (420 × 760) pensada para pantallas pequeñas. Todo el menú vive
-detrás del botón **☰**, que abre un drawer con las mismas 11 opciones del
-escritorio. La barra superior es compacta: estado resumido y la ruta de destino.
+La ventana angosta (420 x 760) con menu hamburguesa **quedo como plantilla**
+para la app nativa de Android e iOS: un `.exe` de Windows con forma de
+telefono no es una app movil. El codigo se conserva en `fronts/movil.py` y lo
+que hace falta para la app esta en `docs/MOVIL.md`.
+
+## Ejecutables nativos (sin Python instalado)
+
+Si quieres que el programa corra **sin tener Python**, hay un binario por
+sistema operativo. PyInstaller no cruza sistemas: el `.exe` de Windows no
+abre en Linux (sin Wine).
+
+| Sistema | Donde queda | Como se compila |
+|---|---|---|
+| Windows | `Ejecutables/windows/` | `python Ejecutables\construir.py` |
+| Linux | `Ejecutables/linux/` | `python3 Ejecutables/construir.py` |
+| macOS | `Ejecutables/macos/` | `python3 Ejecutables/construir.py` |
+
+Los tres se compilan en su propio sistema. La guia completa (requisitos,
+comandos y que hacer si falla) esta en **`Linux/COMPILAR-LINUX-MAC.txt`**.
+
+Cada binario lleva las imagenes **dentro**, asi que el logo se ve aunque el
+archivo se copie a otra carpeta.
 
 ## Versión mínima de terminal (sin Python)
 
@@ -82,6 +128,32 @@ fronts/   Los tres frentes (terminal, HUD, celular). Solo presentan: leen del
 - `fronts/tema.py` define los tokens de ancho para que los paneles se adapten
   a la ventana angosta del celular.
 
+## Donde se guardan los datos
+
+El programa **no guarda sus datos junto al ejecutable** sino en la carpeta de
+datos del sistema, porque un `.pyz` o un ejecutable pueden estar en una
+carpeta de solo lectura (`/usr/share`, `C:\Program Files`):
+
+| Sistema | Carpeta de datos |
+|---|---|
+| Windows | `%APPDATA%\Respaldos.Gio\` |
+| Linux | `~/.config/respaldos.gio/` (o `$XDG_CONFIG_HOME/respaldos.gio/`) |
+| macOS | `~/Library/Application Support/Respaldos.Gio/` |
+
+Ahi van `config.json`, la lista blanca/negra, la clave de red, los estados de
+los respaldos interrumpidos, los respaldos y el registro.
+
+Para meter todo en otro lado (por ejemplo un USB), define la variable de
+entorno `RESPALDOS_GIO_DATA` antes de arrancar:
+
+```
+RESPALDOS_GIO_DATA=/mnt/USB/Respaldos python3 Respaldos.pyz
+```
+
+La primera vez, si encuentra un `config.json` junto al programa (de una
+version anterior), lo copia a la carpeta de datos para que no se pierdan los
+ajustes.
+
 ## Seguridad
 
 - Clave de red derivada con **PBKDF2-HMAC-SHA256 (100,000 iteraciones)**.
@@ -100,9 +172,15 @@ fronts/   Los tres frentes (terminal, HUD, celular). Solo presentan: leen del
 
 ## Requisitos
 
-- Python 3.13
-- Solo `tkinter`/`ttk` de la biblioteca estándar (no se usa `customtkinter`).
-- `Pillow` y `PyInstaller` solo para generar los iconos HD y los ejecutables.
+- Python 3.8 o superior (se recomienda 3.13).
+- El front de **terminal** no necesita nada mas.
+- El front de **escritorio** necesita `tkinter`:
+  - Debian/Ubuntu: `sudo apt install python3-tk`
+  - Fedora: `sudo dnf install python3-tkinter`
+  - macOS: el Python de python.org ya lo trae; el de Apple (`/usr/bin/python3`)
+    no, usa `brew install python-tk`.
+- `Pillow`, `PyInstaller`, `psutil` y `cryptography` solo para compilar los
+  ejecutables y las funciones opcional (iconos, TLS del modo red).
 
 ## Pruebas
 
@@ -120,7 +198,11 @@ python Pruebas\run_all_tests.py --exe    # además los 3 ejecutables
 - `fronts/` — terminal, HUD y celular.
 - `Pruebas/` — pruebas del núcleo, de los frentes y de los ejecutables.
 - `windows/`, `Linux/`, `macOS/` — versión mínima de terminal, sin Python.
-- `Ejecutables/` — los tres ejecutables 6.2 con su icono y su `config.json`.
+- `Ejecutables/` — los specs (`Respaldos.Gio.spec`, `Respaldos.Gio-Terminal.spec`,
+  `RespaldosCelular.spec`), los generadores (`construir.py` para el binario
+  del sistema actual, `generar_pyz.py` para el archivo universal) y los
+  binarios en `windows/`, `linux/` o `macos/`.
+- `docs/MOVIL.md` — que falta para la app nativa de Android e iOS.
 - `IMG/` — `icono.png`, `interface.png` y los `.ico` multi-tamaño.
 - `config.json`, `config/`, `rutas_respaldo.txt`, `lista_blanca.txt`,
   `lista_negra.txt` — configuración y registros del sistema.
@@ -130,23 +212,33 @@ python Pruebas\run_all_tests.py --exe    # además los 3 ejecutables
 ## Generar los ejecutables
 
 Cada ejecutable tiene su `.spec` en su carpeta dentro de `Ejecutables/`.
-Para reconstruirlos hay que pasar `dist` y `build` de forma explícita (PyInstaller
-los deja en el directorio de trabajo actual, no en el del `.spec`):
+PyInstaller **no cruza sistemas operativos**: el binario que se compila es del
+sistema donde se compila, y sale en `Ejecutables/<sistema>/`.
+
+En Windows:
 
 ```powershell
-python -m PyInstaller --noconfirm --clean --distpath Ejecutables\RespaldosInterface6.2\dist `
-  --workpath Ejecutables\RespaldosInterface6.2\build `
-  Ejecutables\RespaldosInterface6.2\Respaldos.Gio.spec
+python Ejecutables\construir.py
 ```
 
-O, más cómodo, todo de corrido:
+En Linux y macOS:
 
-```powershell
-python Ejecutables\construir_6.2.py
+```bash
+python3 Ejecutables/construir.py
 ```
 
-Ese script reconstruye los tres, deja cada `.exe` junto a su `.spec` y borra las
-carpetas temporales de `build/`.
+Los specs se ajustan solos: el icono (`.ico` en Windows, `.png` en Linux,
+`.icns` en macOS) y la extension del binario. Las imagenes van **dentro** del
+ejecutable, asi que el logo se ve aunque copies el archivo a otra carpeta.
+
+El archivo universal se genera aparte:
+
+```bash
+python Ejecutables/generar_pyz.py
+```
+
+La guia paso a paso para compilar en Linux y macOS (requisitos, comandos y
+que hacer si falla) esta en `Linux/COMPILAR-LINUX-MAC.txt`.
 
 ## Documentación
 

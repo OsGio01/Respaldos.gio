@@ -7,8 +7,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  bateria:
-    # Solo Windows: las pruebas abren ventanas de Tk y el ejecutable es de Windows.
+  windows:
+    name: Windows (todo)
+    # Todo el sistema: ventanas de Tk y los ejecutables .exe.
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,3 +25,84 @@ jobs:
 
       - name: Bateria de pruebas
         run: python Pruebas/run_all_tests.py
+
+      - name: Construir los ejecutables de Windows
+        run: python Ejecutables\construir.py
+
+      - name: Comprobar que las imagenes van dentro del binario
+        run: |
+          python -c "from PyInstaller.archive.readers import CArchiveReader; import sys; a=CArchiveReader('Ejecutables/windows/Respaldos.Gio6.2.exe'); i=[n for n in a.toc if n.startswith('IMG')]; print(i); sys.exit(0 if len(i)>=4 else 1)"
+
+      - name: Generar el archivo universal .pyz
+        run: python Ejecutables\generar_pyz.py
+
+  linux:
+    name: Linux (nucleo, terminal y scripts)
+    # Sin ventanas de Tk ni .exe: solo lo que corre en POSIX.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install psutil cryptography
+          sudo apt-get update
+          sudo apt-get install -y python3-tk zip
+
+      - name: Bateria de pruebas (sin los ejecutables de Windows)
+        run: python Pruebas/run_all_tests.py
+
+      - name: Comprobar los scripts de bash
+        run: |
+          bash -n Linux/respaldos.sh
+          bash -n macOS/respaldos.sh
+          bash -n macOS/Respaldos.gio.command
+
+      - name: Construir los ejecutables de Linux
+        run: python Ejecutables/construir.py
+
+      - name: Comprobar que las imagenes van dentro del binario
+        run: |
+          python -c "from PyInstaller.archive.readers import CArchiveReader; import sys; a=CArchiveReader('Ejecutables/linux/Respaldos.Gio6.2'); i=[n for n in a.toc if n.startswith('IMG')]; print(i); sys.exit(0 if len(i)>=4 else 1)"
+
+      - name: Generar y probar el archivo universal .pyz
+        run: |
+          python Ejecutables/generar_pyz.py
+          python -c "import zipfile; z=zipfile.ZipFile('Respaldos.pyz'); n=z.namelist(); assert 'IMG/interface.png' in n and 'IMG/icono.png' in n, n; assert not [x for x in n if 'clave_red' in x], 'la clave de red no debe ir dentro'; print('pyz OK')"
+
+  macos:
+    name: macOS (nucleo, terminal y scripts)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install psutil cryptography pillow
+
+      - name: Bateria de pruebas (sin los ejecutables de Windows)
+        run: python Pruebas/run_all_tests.py
+
+      - name: Comprobar los scripts de bash
+        run: |
+          bash -n Linux/respaldos.sh
+          bash -n macOS/respaldos.sh
+          bash -n macOS/Respaldos.gio.command
+
+      - name: Construir los ejecutables de macOS
+        run: python Ejecutables/construir.py
+
+      - name: Generar y probar el archivo universal .pyz
+        run: |
+          python Ejecutables/generar_pyz.py
+          python -c "import zipfile; z=zipfile.ZipFile('Respaldos.pyz'); n=z.namelist(); assert 'IMG/interface.png' in n and 'IMG/icono.png' in n, n; print('pyz OK')"

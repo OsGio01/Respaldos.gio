@@ -8,6 +8,7 @@ import re
 from typing import List, Optional, Set, Tuple
 
 from core import constantes
+from core.plataforma import es_android, rutas_android
 
 
 EXTENSIONES_RESPALDO = {
@@ -37,14 +38,26 @@ class FiltroRutas:
             "System32", "WinSxS", "Program Files", "Program Files (x86)",
             "boot", "dev", "proc", "sys", "lost+found",
             "Library/Caches", "Library/Logs", "Library/Preferences",
-            "var/tmp",
+            "var/tmp", "tmp",
         ]
 
     @staticmethod
     def _whitelist_default() -> List[str]:
         home = os.path.expanduser("~")
-        nombres = ["Documents", "Documentos", "Desktop", "Escritorio", "Downloads", "Descargas",
-                    "Music", "Musica", "Pictures", "Imagenes", "Videos", "Videos", "Development", "Projects"]
+        # Nombres de carpeta en espanol y en ingles, con y sin tilde.
+        # En un Linux en espanol las carpetas son "Musica", "Imagenes" y "Videos"
+        # CON tilde: sin esta lista el programa no detecta nada que respaldar.
+        # Los acentos van como escapes \uXXXX para que el fuente sea ASCII puro.
+        nombres = [
+            "Documents", "Documentos",
+            "Desktop", "Escritorio",
+            "Downloads", "Descargas",
+            "Music", "Musica", "M\u00fAsica",
+            "Pictures", "Imagenes", "Im\u00e1genes",
+            "Videos", "V\u00eddeos", "Videos",
+            "Movies", "Pel\u00edculas",
+            "Development", "Desarrollo", "Projects", "Proyectos",
+        ]
         return [os.path.join(home, n) for n in nombres] + [
             "/Applications/XAMPP/htdocs", os.path.expanduser("~/Applications/XAMPP/htdocs")]
 
@@ -135,16 +148,48 @@ class Escaner:
 
 
 def obtener_carpetas_usuario() -> List[str]:
+    """Carpetas personales del usuario en este sistema.
+
+    La lista es bilingue (espanol e ingles) y trae los nombres CON tilde:
+    en un Linux en espanol las carpetas son "Musica", "Imagenes" y "Videos"
+    con tilde, y sin ellas el programa no encuentra nada que respaldar.
+    """
     sistema = platform.system()
     home = os.path.expanduser("~")
+
     if sistema == "Windows":
-        carpetas = ["Documents", "Music", "Pictures", "Videos", "Downloads", "Desktop", "Favorites", "Contacts"]
+        carpetas = ["Documents", "Music", "Pictures", "Videos", "Downloads",
+                    "Desktop", "Favorites", "Contacts"]
     elif sistema == "Darwin":
-        carpetas = ["Documents", "Music", "Pictures", "Movies", "Downloads", "Desktop", "Library", "Development"]
+        # macOS usa "Movies" (no "Videos") y "Library" como carpeta de usuario.
+        carpetas = ["Documents", "Music", "Pictures", "Movies", "Downloads",
+                    "Desktop", "Library", "Development"]
+    elif es_android():
+        # Android (Termux): el almacenamiento compartido vive en /sdcard y sus
+        # carpetas tienen nombres propios (DCIM, Download, ...).
+        carpetas = []
+        for base in rutas_android():
+            carpetas += ["DCIM", "Download", "Documents", "Movies", "Music", "Pictures"]
+            break
     else:
-        carpetas = ["Documentos", "Musica", "Imagenes", "Videos", "Descargas", "Escritorio", "Public", "Plantillas",
-                    "Documents", "Music", "Pictures", "Videos", "Downloads", "Desktop"]
-    return [os.path.join(home, c) for c in carpetas if os.path.exists(os.path.join(home, c))]
+        carpetas = [
+            # espanol (con y sin tilde)
+            "Documentos", "Musica", "M\u00fAsica", "Imagenes", "Im\u00e1genes",
+            "Videos", "V\u00eddeos", "Descargas", "Escritorio", "Public",
+            "Plantillas", "Pel\u00edculas", "Desarrollo", "Proyectos",
+            # ingles
+            "Documents", "Music", "Pictures", "Videos", "Downloads", "Desktop",
+            "Public", "Templates", "Movies", "Development", "Projects",
+        ]
+
+    rutas = []
+    for c in carpetas:
+        # En Android las carpetas cuelgan de /sdcard, no del home.
+        base = rutas_android()[0] if es_android() and rutas_android() else home
+        ruta = os.path.join(base, c)
+        if os.path.exists(ruta):
+            rutas.append(ruta)
+    return rutas
 
 
 def detectar_unidades_externas() -> List[str]:

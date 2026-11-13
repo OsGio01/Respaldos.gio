@@ -18,6 +18,7 @@ from fronts.tema import (
     COLOR_ACCENTO, COLOR_ACCENTO_FIN, COLOR_ARCO, COLOR_ARCO_OK, COLOR_BORDE,
     COLOR_FONDO, COLOR_LOG_ERROR, COLOR_LOG_INFO, COLOR_LOG_OK, COLOR_LOG_WARN,
     COLOR_PANEL, COLOR_PANEL_2, COLOR_SUBTEXTO, COLOR_TEXTO, ANCHO_ARCO, MARGEN_ARCO,
+    FUENTE_MONO, FUENTE_UI,
 )
 
 
@@ -33,7 +34,7 @@ def tarjeta(parent, padx=0, pady=0):
 
 def etiqueta(parent, texto, tam=10, negrita=False, color=None, bg=None):
     return tk.Label(parent, text=texto, bg=bg or COLOR_PANEL, fg=color or COLOR_TEXTO,
-                    font=("Segoe UI", tam, "bold" if negrita else "normal"), anchor="w")
+                    font=(FUENTE_UI, tam, "bold" if negrita else "normal"), anchor="w")
 
 
 def boton(parent, texto, comando, primario=True, ancho=None):
@@ -42,7 +43,7 @@ def boton(parent, texto, comando, primario=True, ancho=None):
                   fg="#ffffff" if primario else COLOR_TEXTO,
                   activebackground=COLOR_ACCENTO_FIN if primario else COLOR_BORDE,
                   activeforeground="#ffffff" if primario else COLOR_TEXTO,
-                  relief="flat", cursor="hand2", font=("Segoe UI", 10, "bold"),
+                  relief="flat", cursor="hand2", font=(FUENTE_UI, 10, "bold"),
                   padx=16, pady=7)
     if ancho:
         b.config(width=ancho)
@@ -67,10 +68,22 @@ class MarcoScroll(tk.Frame):
                          lambda e: self.canvas.itemconfig(self._win, width=e.width))
         self.canvas.bind("<MouseWheel>", self._rueda)
         self.interior.bind("<MouseWheel>", self._rueda)
+        # La rueda del raton: en Windows es <MouseWheel>, en Linux y macOS son
+        # <Button-4> (arriba) y <Button-5> (abajo).
+        self.canvas.bind("<Button-4>", self._rueda_arriba)
+        self.interior.bind("<Button-4>", self._rueda_arriba)
+        self.canvas.bind("<Button-5>", self._rueda_abajo)
+        self.interior.bind("<Button-5>", self._rueda_abajo)
 
     def _rueda(self, evento):
         delta = -1 if evento.delta > 0 else 1
         self.canvas.yview_scroll(delta, "units")
+
+    def _rueda_arriba(self, _evento=None):
+        self.canvas.yview_scroll(-1, "units")
+
+    def _rueda_abajo(self, _evento=None):
+        self.canvas.yview_scroll(1, "units")
 
 
 class Interruptor(tk.Canvas):
@@ -125,7 +138,7 @@ class Burbuja(tk.Canvas):
         self._fijada = False
         self.create_oval(1, 1, 16, 16, outline=COLOR_ACCENTO, width=1)
         self.create_text(8.5, 9, text="i", fill=COLOR_ACCENTO,
-                         font=("Segoe UI", 9, "bold"))
+                         font=(FUENTE_UI, 9, "bold"))
         self.bind("<Enter>", self._al_entrar)
         self.bind("<Leave>", self._al_salir)
         self.bind("<Button-1>", self._al_pulsar)
@@ -160,7 +173,7 @@ class Burbuja(tk.Canvas):
             marco = tk.Frame(top, bg=COLOR_BORDE)
             marco.pack(fill="both", expand=True, padx=1, pady=1)
             tk.Label(marco, text=self.texto, bg=COLOR_PANEL_2, fg=COLOR_TEXTO,
-                     font=("Segoe UI", 9), justify="left", anchor="w",
+                     font=(FUENTE_UI, 9), justify="left", anchor="w",
                      wraplength=self.ancho).pack(fill="both", expand=True,
                                                  padx=10, pady=8)
             top.update_idletasks()
@@ -215,10 +228,10 @@ class Panel:
         c = tk.Frame(parent, bg=COLOR_FONDO)
         c.pack(fill="x", pady=(0, 12))
         tk.Label(c, text=self.titulo, bg=COLOR_FONDO, fg=COLOR_TEXTO,
-                 font=("Segoe UI", 17, "bold"), anchor="w").pack(anchor="w")
+                 font=(FUENTE_UI, 17, "bold"), anchor="w").pack(anchor="w")
         if self.descripcion:
             tk.Label(c, text=self.descripcion, bg=COLOR_FONDO, fg=COLOR_SUBTEXTO,
-                     font=("Segoe UI", 10), anchor="w", justify="left",
+                     font=(FUENTE_UI, 10), anchor="w", justify="left",
                      wraplength=_tema.ANCHO_TEXTO).pack(anchor="w")
         return c
 
@@ -282,12 +295,12 @@ class PanelInicio(Panel):
     def _ficha(self, parent, titulo):
         f = tarjeta(parent, pady=6)
         tk.Label(f, text=titulo, bg=COLOR_PANEL, fg=COLOR_SUBTEXTO,
-                 font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=12, pady=(8, 0))
+                 font=(FUENTE_UI, 8, "bold"), anchor="w").pack(fill="x", padx=12, pady=(8, 0))
         return f
 
     def _valor(self, parent, texto, color=None, tam=10):
         l = tk.Label(parent, text=texto, bg=COLOR_PANEL, fg=color or COLOR_TEXTO,
-                     font=("Segoe UI", tam), anchor="w", justify="left",
+                     font=(FUENTE_UI, tam), anchor="w", justify="left",
                      wraplength=_tema.ANCHO_TEXTO - 40)
         l.pack(fill="x", padx=12, pady=(2, 8))
         return l
@@ -304,9 +317,9 @@ class PanelInicio(Panel):
         c.create_arc(x0, y0, x1, y1, start=270, extent=f * 360, style="arc",
                      outline=color, width=10)
         c.create_text((x0 + x1) / 2, (y0 + y1) / 2 - 6, text=f"{int(f * 100)}%",
-                      fill=COLOR_TEXTO, font=("Segoe UI", 26, "bold"))
+                      fill=COLOR_TEXTO, font=(FUENTE_UI, 26, "bold"))
         c.create_text((x0 + x1) / 2, (y0 + y1) / 2 + 26, text="completado",
-                      fill=COLOR_SUBTEXTO, font=("Segoe UI", 9))
+                      fill=COLOR_SUBTEXTO, font=(FUENTE_UI, 9))
 
     def actualizar(self, frac, estado, detalle, ocupado):
         self._dibujar_arco(frac)
@@ -369,12 +382,12 @@ class PanelFuente(Panel):
         if self.fuente.requiere_seleccion:
             caja = tarjeta(cuerpo, pady=(0, 10))
             tk.Label(caja, text="OPCIONES DISPONIBLES", bg=COLOR_PANEL, fg=COLOR_SUBTEXTO,
-                     font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=12,
+                     font=(FUENTE_UI, 8, "bold"), anchor="w").pack(fill="x", padx=12,
                                                                     pady=(8, 0))
             controles = tk.Frame(caja, bg=COLOR_PANEL)
             controles.pack(fill="x", padx=12, pady=(4, 4))
             self.lbl_detect = tk.Label(controles, text="Detectando...", bg=COLOR_PANEL,
-                                       fg=COLOR_LOG_INFO, font=("Segoe UI", 9))
+                                       fg=COLOR_LOG_INFO, font=(FUENTE_UI, 9))
             self.lbl_detect.pack(side="left")
             self.btn_todos = boton(controles, "Todos", self._marcar_todos, primario=False)
             self.btn_todos.pack(side="right", padx=(6, 0))
@@ -385,7 +398,7 @@ class PanelFuente(Panel):
             lista.pack(fill="both", expand=True, padx=12, pady=(0, 12))
             self.lista = tk.Listbox(lista, bg=COLOR_PANEL_2, fg=COLOR_TEXTO,
                                     selectbackground=COLOR_ACCENTO, selectforeground="#ffffff",
-                                    highlightthickness=0, height=8, font=("Segoe UI", 9),
+                                    highlightthickness=0, height=8, font=(FUENTE_UI, 9),
                                     selectmode=tk.EXTENDED if self.fuente.multiple else tk.BROWSE)
             scroll = tk.Scrollbar(lista, orient="vertical", command=self.lista.yview)
             self.lista.configure(yscrollcommand=scroll.set)
@@ -399,19 +412,19 @@ class PanelFuente(Panel):
             tk.Label(caja,
                      text="Se respaldaran todos los archivos de las extensiones configuradas "
                           "en el escaner del programa.",
-                     bg=COLOR_PANEL, fg=COLOR_LOG_INFO, font=("Segoe UI", 9),
+                     bg=COLOR_PANEL, fg=COLOR_LOG_INFO, font=(FUENTE_UI, 9),
                      anchor="w", justify="left", wraplength=_tema.ANCHO_TEXTO).pack(
                 fill="x", padx=14, pady=12)
 
         # --- destino
         dest = tarjeta(cuerpo, pady=(0, 10))
         tk.Label(dest, text="CARPETA DESTINO", bg=COLOR_PANEL, fg=COLOR_SUBTEXTO,
-                 font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=12,
+                 font=(FUENTE_UI, 8, "bold"), anchor="w").pack(fill="x", padx=12,
                                                                 pady=(8, 0))
         fila = tk.Frame(dest, bg=COLOR_PANEL)
         fila.pack(fill="x", padx=12, pady=(4, 12))
         self.entry_destino = tk.Entry(fila, bg=COLOR_PANEL_2, fg=COLOR_TEXTO, insertbackground=COLOR_TEXTO,
-                                      relief="flat", font=("Segoe UI", 9))
+                                      relief="flat", font=(FUENTE_UI, 9))
         self.entry_destino.pack(side="left", fill="x", expand=True, ipady=6)
         self.entry_destino.insert(0, self.app.config.ruta_base_respaldos)
         boton(fila, "Examinar...", self._examinar, primario=False).pack(side="right", padx=(8, 0))
@@ -503,17 +516,17 @@ class PanelReanudar(Panel):
         self._cabecera(self.frame)
         caja = tarjeta(self.frame)
         tk.Label(caja, text="RESPALDOS INTERRUMPIDOS", bg=COLOR_PANEL, fg=COLOR_SUBTEXTO,
-                 font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=12,
+                 font=(FUENTE_UI, 8, "bold"), anchor="w").pack(fill="x", padx=12,
                                                                 pady=(8, 0))
         self.lbl_vacio = tk.Label(caja, text="Cargando...", bg=COLOR_PANEL,
-                                  fg=COLOR_LOG_INFO, font=("Segoe UI", 10), anchor="w",
+                                  fg=COLOR_LOG_INFO, font=(FUENTE_UI, 10), anchor="w",
                                   justify="left", wraplength=_tema.ANCHO_TEXTO - 40)
         self.lbl_vacio.pack(fill="x", padx=14, pady=6)
         cont = tk.Frame(caja, bg=COLOR_PANEL)
         cont.pack(fill="both", expand=True, padx=12, pady=(0, 12))
         self.lista = tk.Listbox(cont, bg=COLOR_PANEL_2, fg=COLOR_TEXTO,
                                 selectbackground=COLOR_ACCENTO, selectforeground="#ffffff",
-                                highlightthickness=0, height=10, font=("Segoe UI", 9))
+                                highlightthickness=0, height=10, font=(FUENTE_UI, 9))
         scroll = tk.Scrollbar(cont, orient="vertical", command=self.lista.yview)
         self.lista.configure(yscrollcommand=scroll.set)
         self.lista.pack(side="left", fill="both", expand=True)
@@ -579,7 +592,7 @@ class PanelRed(Panel):
         tk.Label(nota,
                  text="La clave de red, la IP y las confirmaciones se piden en ventanas "
                       "emergentes durante la operacion.",
-                 bg=COLOR_FONDO, fg=COLOR_SUBTEXTO, font=("Segoe UI", 9),
+                 bg=COLOR_FONDO, fg=COLOR_SUBTEXTO, font=(FUENTE_UI, 9),
                  anchor="w", justify="left",
                  wraplength=_tema.ANCHO_TEXTO).pack(anchor="w")
 
@@ -590,9 +603,9 @@ class PanelRed(Panel):
             c.pack(side="left", fill="both", expand=True, padx=(0, 12))
         else:
             c.pack(fill="x", pady=(0, 12))
-        tk.Label(c, text=titulo, bg=COLOR_PANEL, fg=COLOR_ACCENTO, font=("Segoe UI", 13, "bold"),
+        tk.Label(c, text=titulo, bg=COLOR_PANEL, fg=COLOR_ACCENTO, font=(FUENTE_UI, 13, "bold"),
                  anchor="w").pack(fill="x", padx=18, pady=(18, 6))
-        tk.Label(c, text=texto, bg=COLOR_PANEL, fg=COLOR_LOG_INFO, font=("Segoe UI", 10),
+        tk.Label(c, text=texto, bg=COLOR_PANEL, fg=COLOR_LOG_INFO, font=(FUENTE_UI, 10),
                  anchor="w", justify="left",
                  wraplength=min(380, _tema.ANCHO_TEXTO - 60)).pack(fill="x", padx=18)
         boton(c, accion_texto, accion, primario=True).pack(anchor="w", padx=18, pady=(18, 20))
@@ -610,17 +623,17 @@ class PanelEliminar(Panel):
         self._cabecera(self.frame)
         caja = tarjeta(self.frame)
         tk.Label(caja, text="RESPALDOS GENERADOS", bg=COLOR_PANEL, fg=COLOR_SUBTEXTO,
-                 font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=12,
+                 font=(FUENTE_UI, 8, "bold"), anchor="w").pack(fill="x", padx=12,
                                                                 pady=(8, 0))
         self.lbl_vacio = tk.Label(caja, text="Cargando...", bg=COLOR_PANEL,
-                                  fg=COLOR_LOG_INFO, font=("Segoe UI", 10), anchor="w",
+                                  fg=COLOR_LOG_INFO, font=(FUENTE_UI, 10), anchor="w",
                                   justify="left", wraplength=_tema.ANCHO_TEXTO - 40)
         self.lbl_vacio.pack(fill="x", padx=14, pady=6)
         cont = tk.Frame(caja, bg=COLOR_PANEL)
         cont.pack(fill="both", expand=True, padx=12, pady=(0, 12))
         self.lista = tk.Listbox(cont, bg=COLOR_PANEL_2, fg=COLOR_TEXTO,
                                 selectbackground="#ef4444", selectforeground="#ffffff",
-                                highlightthickness=0, height=10, font=("Segoe UI", 9))
+                                highlightthickness=0, height=10, font=(FUENTE_UI, 9))
         scroll = tk.Scrollbar(cont, orient="vertical", command=self.lista.yview)
         self.lista.configure(yscrollcommand=scroll.set)
         self.lista.pack(side="left", fill="both", expand=True)
@@ -685,14 +698,14 @@ class PanelRegistros(Panel):
         top = tk.Frame(caja, bg=COLOR_PANEL)
         top.pack(fill="x", padx=12, pady=(10, 6))
         self.lbl_total = tk.Label(top, text="", bg=COLOR_PANEL, fg=COLOR_LOG_INFO,
-                                  font=("Segoe UI", 9), anchor="w")
+                                  font=(FUENTE_UI, 9), anchor="w")
         self.lbl_total.pack(side="left")
         boton(top, "Actualizar", self.al_mostrar, primario=False).pack(side="right")
 
         cont = tk.Frame(caja, bg=COLOR_PANEL)
         cont.pack(fill="both", expand=True, padx=12, pady=(0, 12))
         self.texto = tk.Text(cont, bg=COLOR_PANEL_2, fg=COLOR_TEXTO, relief="flat",
-                             font=("Consolas", 9), wrap="none", height=14,
+                             font=(FUENTE_MONO, 9), wrap="none", height=14,
                              width=max(24, _tema.ANCHO_TEXTO // 9),
                              state=tk.DISABLED)
         scroll_y = tk.Scrollbar(cont, orient="vertical", command=self.texto.yview)
@@ -808,7 +821,7 @@ class PanelConfig(Panel):
         # --- interruptores
         caja = tarjeta(cont, pady=(0, 10))
         tk.Label(caja, text="OPCIONES ACTIVADAS / DESACTIVADAS", bg=COLOR_PANEL,
-                 fg=COLOR_SUBTEXTO, font=("Segoe UI", 8, "bold"), anchor="w").pack(
+                 fg=COLOR_SUBTEXTO, font=(FUENTE_UI, 8, "bold"), anchor="w").pack(
             fill="x", padx=14, pady=(10, 4))
         self._vars_bool = {}
         for campo, texto in INTERRUPTORES:
@@ -819,11 +832,11 @@ class PanelConfig(Panel):
         cab_h = tk.Frame(caja2, bg=COLOR_PANEL)
         cab_h.pack(fill="x", padx=14, pady=(10, 2))
         tk.Label(cab_h, text="HILOS PARALELOS", bg=COLOR_PANEL, fg=COLOR_SUBTEXTO,
-                 font=("Segoe UI", 8, "bold"), anchor="w").pack(side="left")
+                 font=(FUENTE_UI, 8, "bold"), anchor="w").pack(side="left")
         Burbuja(cab_h, AYUDAS["hilos"]).pack(side="left", padx=(7, 0))
         tk.Label(caja2,
                  text="Cuantos archivos se copian al mismo tiempo.",
-                 bg=COLOR_PANEL, fg=COLOR_LOG_INFO, font=("Segoe UI", 9), anchor="w").pack(
+                 bg=COLOR_PANEL, fg=COLOR_LOG_INFO, font=(FUENTE_UI, 9), anchor="w").pack(
             fill="x", padx=14)
         fila_h = tk.Frame(caja2, bg=COLOR_PANEL)
         fila_h.pack(fill="x", padx=14, pady=(6, 4))
@@ -833,7 +846,7 @@ class PanelConfig(Panel):
                                     showvalue=True,
                                     bg=COLOR_PANEL, fg=COLOR_TEXTO, highlightthickness=0,
                                     troughcolor=COLOR_PANEL_2, activebackground=COLOR_ACCENTO,
-                                    font=("Segoe UI", 9), command=self._cambio_hilos)
+                                    font=(FUENTE_UI, 9), command=self._cambio_hilos)
         if _tema.ES_ANCHO:
             self.scale_hilos.pack(side="left")
             cont_auto = fila_h
@@ -845,11 +858,11 @@ class PanelConfig(Panel):
         tk.Checkbutton(cont_auto, text="Auto (recomendado)", variable=self.var_auto,
                        bg=COLOR_PANEL, fg=COLOR_TEXTO, selectcolor=COLOR_PANEL_2,
                        activebackground=COLOR_PANEL, activeforeground=COLOR_TEXTO,
-                       font=("Segoe UI", 9), command=self._cambio_auto).pack(
+                       font=(FUENTE_UI, 9), command=self._cambio_auto).pack(
             side="left", padx=(16, 0) if _tema.ES_ANCHO else 0)
         Burbuja(cont_auto, AYUDAS["auto"]).pack(side="left", padx=(7, 0))
         self.lbl_cpus = tk.Label(caja2, text=f"Tu CPU: {os.cpu_count() or '?'} nucleos",
-                                 bg=COLOR_PANEL, fg=COLOR_SUBTEXTO, font=("Segoe UI", 9),
+                                 bg=COLOR_PANEL, fg=COLOR_SUBTEXTO, font=(FUENTE_UI, 9),
                                  anchor="w")
         self.lbl_cpus.pack(fill="x", padx=14, pady=(0, 10))
 
@@ -858,10 +871,10 @@ class PanelConfig(Panel):
         cab_n = tk.Frame(caja3, bg=COLOR_PANEL)
         cab_n.pack(fill="x", padx=14, pady=(10, 2))
         tk.Label(cab_n, text="NIVEL DE COMPRESION (0-9)", bg=COLOR_PANEL, fg=COLOR_SUBTEXTO,
-                 font=("Segoe UI", 8, "bold"), anchor="w").pack(side="left")
+                 font=(FUENTE_UI, 8, "bold"), anchor="w").pack(side="left")
         Burbuja(cab_n, AYUDAS["nivel"]).pack(side="left", padx=(7, 0))
         self.lbl_nivel_txt = tk.Label(caja3, text="", bg=COLOR_PANEL, fg=COLOR_LOG_INFO,
-                                      font=("Segoe UI", 9), anchor="w")
+                                      font=(FUENTE_UI, 9), anchor="w")
         self.lbl_nivel_txt.pack(fill="x", padx=14)
         fila_n = tk.Frame(caja3, bg=COLOR_PANEL)
         fila_n.pack(fill="x", padx=14, pady=(6, 10))
@@ -871,7 +884,7 @@ class PanelConfig(Panel):
                             length=_tema.LARGO_ESCALA, showvalue=True, bg=COLOR_PANEL,
                             fg=COLOR_TEXTO,
                             highlightthickness=0, troughcolor=COLOR_PANEL_2,
-                            activebackground=COLOR_ACCENTO, font=("Segoe UI", 9),
+                            activebackground=COLOR_ACCENTO, font=(FUENTE_UI, 9),
                             command=self._cambio_nivel)
         escala_n.pack(side="left" if _tema.ES_ANCHO else "top",
                       fill="x" if not _tema.ES_ANCHO else None)
@@ -880,7 +893,7 @@ class PanelConfig(Panel):
         # --- campos de texto
         caja4 = tarjeta(cont, pady=(0, 10))
         tk.Label(caja4, text="RUTAS Y CLAVES", bg=COLOR_PANEL, fg=COLOR_SUBTEXTO,
-                 font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x", padx=14,
+                 font=(FUENTE_UI, 8, "bold"), anchor="w").pack(fill="x", padx=14,
                                                                 pady=(10, 4))
         self._vars_texto = {}
         for campo, texto, con_examinar in CAMPOS_TEXTO:
@@ -905,13 +918,13 @@ class PanelConfig(Panel):
         f.pack(fill="x", padx=14, pady=3)
         extra = ({"wraplength": max(140, _tema.ANCHO_TEXTO - 240),
                   "justify": "left"} if not _tema.ES_ANCHO else {})
-        tk.Label(f, text=texto, bg=COLOR_PANEL, fg=COLOR_TEXTO, font=("Segoe UI", 10),
+        tk.Label(f, text=texto, bg=COLOR_PANEL, fg=COLOR_TEXTO, font=(FUENTE_UI, 10),
                  anchor="w", **extra).pack(side="left")
         Burbuja(f, AYUDAS.get(campo, "")).pack(side="left", padx=(7, 0))
         var = tk.IntVar(value=1 if getattr(self.app.config, campo) else 0)
         self._vars_bool[campo] = var
         lbl = tk.Label(f, text="", bg=COLOR_PANEL, fg=COLOR_LOG_INFO,
-                       font=("Segoe UI", 9, "bold"), width=11, anchor="e")
+                       font=(FUENTE_UI, 9, "bold"), width=11, anchor="e")
         lbl.pack(side="right")
         sw = Interruptor(f, var, on_cambio=lambda v, c=campo: self._cambio_bool(c, v))
         sw.pack(side="right", padx=(0, 10))
@@ -923,13 +936,13 @@ class PanelConfig(Panel):
         f.pack(fill="x", padx=14, pady=5)
         cab = tk.Frame(f, bg=COLOR_PANEL)
         cab.pack(fill="x")
-        tk.Label(cab, text=texto, bg=COLOR_PANEL, fg=COLOR_TEXTO, font=("Segoe UI", 10),
+        tk.Label(cab, text=texto, bg=COLOR_PANEL, fg=COLOR_TEXTO, font=(FUENTE_UI, 10),
                  anchor="w").pack(side="left")
         Burbuja(cab, AYUDAS.get(campo, "")).pack(side="left", padx=(7, 0))
         fila = tk.Frame(f, bg=COLOR_PANEL)
         fila.pack(fill="x", pady=(3, 0))
         e = tk.Entry(fila, bg=COLOR_PANEL_2, fg=COLOR_TEXTO, insertbackground=COLOR_TEXTO,
-                     relief="flat", font=("Segoe UI", 9))
+                     relief="flat", font=(FUENTE_UI, 9))
         e.insert(0, getattr(self.app.config, campo) or "")
         e.pack(side="left", fill="x", expand=True, ipady=5)
         e.bind("<FocusOut>", lambda ev, c=campo, ent=e: self._guardar_campo(c, ent.get()))

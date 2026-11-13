@@ -1,0 +1,189 @@
+================================================================================
+COMPILAR LA VERSION NATIVA DE LINUX Y DE MACOS
+Respaldos.Gio v6.2
+================================================================================
+
+QUE HAY QUE HACER
+-----------------
+
+El ejecutable universal "Respaldos.pyz" YA funciona en Linux y macOS (un solo
+archivo, con las imagenes dentro, corre con cualquier Python 3.8+). Si solo
+necesitas que el programa funcione, no tienes que compilar nada:
+
+    python3 Respaldos.pyz          # o ./Respaldos.pyz si tiene permiso
+    chmod +x Respaldos.pyz
+
+PERO si quieres un BINARIO NATIVO (un archivo que corra sin tener Python
+instalado, como el .exe de Windows), hay que compilarlo en el sistema
+correspondiente. PyInstaller no cruza sistemas operativos: el .exe de Windows
+NO se puede abrir en Linux ni al reves. Por eso hay un binario por SO.
+
+Este archivo es la guia para que una IA (o tu) compile esos binarios.
+
+
+REQUISITOS
+----------
+
+1. Python 3.8 o superior. En Ubuntu/Debian:
+
+       sudo apt update
+       sudo apt install python3 python3-pip python3-dev
+
+   En macOS (con Homebrew):
+
+       brew install python@3.13
+
+2. Las dependencias de Python:
+
+       python3 -m pip install --upgrade pip
+       python3 -m pip install pyinstaller pillow psutil cryptography
+
+   - pyinstaller: hace el binario.
+   - pillow: convierte el PNG a .icns en macOS y genera los iconos.
+   - psutil: informacion del sistema (opcional, el programa degrada sin ella).
+   - cryptography: TLS del modo red (opcional, sin ella el modo red avisa).
+
+3. En Linux, para la ventana grafica hace falta tkinter:
+
+       sudo apt install python3-tk        # Debian/Ubuntu
+       sudo dnf install python3-tkinter    # Fedora
+
+   Sin esto el front de Terminal funciona igual, pero el de Escritorio avisa
+   que le falta la biblioteca (no se rompe nada).
+
+
+PASOS PARA COMPILAR (son los mismos en Linux y en macOS)
+----------------------------------------------------------
+
+1. Bajar o clonar el proyecto y entrar a la carpeta:
+
+       cd /ruta/del/proyecto/Respaldos.gio-1
+
+2. Compilar. El script detecta el sistema y deja el binario en la carpeta
+   correcta:
+
+       python3 Ejecutables/construir.py
+
+   Eso produce:
+
+       Ejecutables/linux/Respaldos.Gio6.2          (ventana de escritorio)
+       Ejecutables/linux/Respaldos.gio-Terminal6.2 (terminal)
+
+   En macOS, en lugar de linux:
+
+       Ejecutables/macos/Respaldos.Gio6.2
+       Ejecutables/macos/Respaldos.gio-Terminal6.2
+
+3. Verificar que salio bien (debe imprimir "OK" y el tamano en bytes):
+
+       ls -la Ejecutables/linux/
+       file Ejecutables/linux/Respaldos.Gio6.2
+
+4. Dar permiso de ejecucion y probar:
+
+       chmod +x Ejecutables/linux/*
+       ./Ejecutables/linux/Respaldos.gio-Terminal6.2
+
+5. Generar tambien el archivo universal .pyz (si quieres):
+
+       python3 Ejecutables/generar_pyz.py
+
+
+QUE DEBE IMPRIMIR EL COMPILADO (para saber si salio bien)
+-----------------------------------------------------------
+
+    Reconstruyendo 2 ejecutable(s) de Respaldos.Gio v6.2 para linux
+
+    === Respaldos.Gio6.2 (windowed) ===
+      OK Respaldos.Gio6.2: 16,710,585 bytes, 56s -> Ejecutables\linux\Respaldos.Gio6.2
+
+    === Respaldos.gio-Terminal6.2 (console) ===
+      OK Respaldos.gio-Terminal6.2: 16,639,463 bytes, 30s -> Ejecutables\linux\Respaldos.gio-Terminal6.2
+
+    --- RESULTADO ---
+    Todos los ejecutables quedaron listos.
+
+Si en lugar de "OK" sale "FALLO al compilar", el error real esta en las
+ultimas lineas que imprime el script (copialas tal cual).
+
+
+SI ALGO FALLA
+-------------
+
+A) "No module named PyInstaller"
+       python3 -m pip install pyinstaller
+
+B) "ERROR: Hidden import 'X' not found"
+   Suele ser un modulo de sistema. En Linux:
+       sudo apt install python3-dev
+   En macOS:
+       xcode-select --install
+
+C) "icon file ... not found" o error con el icono
+   El spec genera el .icns de macOS con Pillow a partir del PNG. Si Pillow
+   no esta instalado, instalalo:
+       python3 -m pip install pillow
+
+D) La ventana grafica no abre pero el terminal si
+   Falta tkinter (ver REQUISITOS punto 3). Tambien revisa que haya display:
+   en un servidor sin graficos no hay ventana; el front de Terminal si sirve.
+
+E) "Permission denied" al ejecutar el binario
+       chmod +x Ejecutables/linux/*
+
+F) El binario arranca pero no encuentra las imagenes
+   Verifica que el binario trae la carpeta IMG dentro:
+       python3 -c "from PyInstaller.archive.readers import CArchiveReader; \
+                   print([n for n in CArchiveReader('Ejecutables/linux/Respaldos.Gio6.2').toc if n.startswith('IMG')])"
+   Debe listar IMG/interface.png, IMG/interface.ico, IMG/icono.png e IMG/icono.ico.
+
+
+DONDE QUEDAN LOS DATOS (config, respaldos, registros)
+------------------------------------------------------
+
+El programa ya NO guarda sus datos junto al ejecutable, sino en la carpeta de
+datos del sistema:
+
+    Linux:  ~/.config/respaldos.gio/
+    macOS:  ~/Library/Application Support/Respaldos.Gio/
+    Windows: %APPDATA%\Respaldos.Gio\
+
+Eso es a proposito: un ejecutable puede estar en /usr/share o en
+C:\Program Files, que son carpetas de solo lectura, y ahi el programa no
+podria guardar nada.
+
+La primera vez, si encuentra un config.json junto al programa (de una version
+anterior), lo copia a la carpeta de datos para que no se pierdan los ajustes.
+
+Archivos que hay ahi:
+
+    config.json              ajustes del programa
+    config/whitelist.json    carpetas que siempre se respaldan
+    config/blacklist.json    carpetas que nunca se respaldan
+    config/clave_red.key     la clave de red (NO se versiona, permiso 0600)
+    estados/                 respaldos interrumpidos (para reanudar)
+    Respaldos/               los respaldos que vas haciendo
+    rutas_respaldo.txt       historial
+
+
+SI QUIERES QUE TODO QUEDE DENTRO DE UNA CARPETA TUYA
+-----------------------------------------------------
+
+Se puede cambiar la carpeta de datos con la variable de entorno
+RESPALDOS_GIO_DATA:
+
+    RESPALDOS_GIO_DATA=/mnt/USB/Respaldos python3 Respaldos.pyz
+
+(asigna esa variable ANTES de arrancar el programa).
+
+
+QUE SE ENTREGA AL FINAL
+------------------------
+
+    Respaldos.pyz                          <- un archivo, Windows+Linux+macOS
+    Ejecutables/windows/*.exe              <- binarios nativos de Windows
+    Ejecutables/linux/*                    <- binarios nativos de Linux
+    Ejecutables/macos/*                    <- binarios nativos de macOS
+
+El .pyz NO lleva dentro la clave de red ni el config.json de la maquina que
+lo armo: eso se genera en la carpeta de datos de cada equipo al primer uso.

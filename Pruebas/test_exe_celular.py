@@ -18,8 +18,16 @@ import ctypes.wintypes as wt
 from core import constantes
 
 V = constantes.VERSION_PROGRAMA
-exe = os.path.join(RAIZ, "Ejecutables", f"Respaldoscelular{V}", f"RespaldosCelular{V}.exe")
+exe = os.path.join(RAIZ, "Ejecutables", "windows", f"RespaldosCelular{V}.exe")
 cwd = os.path.dirname(exe)
+
+# El front celular quedo como PLANTILLA para la app nativa de Android/iOS:
+# ya no se compila ni se distribuye (ver docs/MOVIL.md). Si alguien lo
+# construye a mano, la prueba sigue sirviendo.
+if not os.path.exists(exe):
+    print("SKIP el ejecutable celular no se construye (quedo como plantilla)")
+    print("OK   EXE CELULAR (omitido)")
+    sys.exit(0)
 
 user32 = ctypes.windll.user32
 CB = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_int, ctypes.c_int)

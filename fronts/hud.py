@@ -29,10 +29,11 @@ from fronts.tema import (ANCHO_SIDEBAR, ALTO_LOG, ALTO_VENTANA, ANCHO_VENTANA,
                          COLOR_LOG_INFO, COLOR_LOG_OK, COLOR_LOG_WARN, COLOR_PANEL,
                          COLOR_PANEL_2,
                          COLOR_SIDEBAR, COLOR_SIDEBAR_ACTIVO,
-                         COLOR_SIDEBAR_HOVER, COLOR_SUBTEXTO, COLOR_TEXTO)
+                         COLOR_SIDEBAR_HOVER, COLOR_SUBTEXTO, COLOR_TEXTO,
+                         FUENTE_MONO, FUENTE_UI)
 
-RUTA_IMAGEN_LOGO = os.path.join(constantes.RUTA_APP, "IMG", "interface.png")
-RUTA_ICONO_VENTANA = os.path.join(constantes.RUTA_APP, "IMG", "interface.ico")
+RUTA_IMAGEN_LOGO = constantes.ruta_imagen("interface.png")
+RUTA_ICONO_VENTANA = constantes.ruta_imagen("interface.ico")
 
 NIVEL_COLOR = {
     "info": COLOR_LOG_INFO,
@@ -157,7 +158,11 @@ class Aplicacion:
         try:
             self.root.iconbitmap(RUTA_ICONO_VENTANA)
         except Exception:
-            pass
+            # iconbitmap es de Windows. En Linux/macOS se usa el PNG.
+            try:
+                self.root.iconphoto(True, tk.PhotoImage(file=RUTA_IMAGEN_LOGO))
+            except Exception:
+                pass
         self.root.protocol("WM_DELETE_WINDOW", self._al_cerrar)
 
         self._barra_superior()
@@ -184,9 +189,9 @@ class Aplicacion:
         col = tk.Frame(top, bg=COLOR_FONDO)
         col.pack(side="left")
         tk.Label(col, text="RESPALDOS.GIO", bg=COLOR_FONDO, fg=COLOR_TEXTO,
-                 font=("Segoe UI", 15, "bold"), anchor="w").pack(anchor="w")
+                 font=(FUENTE_UI, 15, "bold"), anchor="w").pack(anchor="w")
         self.lbl_ruta = tk.Label(col, text="", bg=COLOR_FONDO, fg=COLOR_SUBTEXTO,
-                                 font=("Segoe UI", 9), anchor="w")
+                                 font=(FUENTE_UI, 9), anchor="w")
         self.lbl_ruta.pack(anchor="w")
 
         der = tk.Frame(top, bg=COLOR_FONDO)
@@ -196,7 +201,7 @@ class Aplicacion:
         self.visor.pack(side="left", padx=(0, 8))
         self.punto = self.visor.create_oval(3, 3, 13, 13, fill=COLOR_ESTADO_IDLE, outline="")
         self.lbl_estado = tk.Label(der, text="Listo", bg=COLOR_FONDO, fg=COLOR_TEXTO,
-                                   font=("Segoe UI", 10, "bold"), anchor="e")
+                                   font=(FUENTE_UI, 10, "bold"), anchor="e")
         self.lbl_estado.pack(side="left")
 
     def _barra_progreso(self):
@@ -216,7 +221,7 @@ class Aplicacion:
         self.progreso_barra.pack(side="left", fill="x", expand=True)
         self.btn_cancelar = tk.Button(marco, text="CANCELAR", command=self.cancelar_respaldo,
                                       bg=COLOR_PANEL_2, fg="#fca5a5", relief="flat",
-                                      cursor="hand2", font=("Segoe UI", 9, "bold"),
+                                      cursor="hand2", font=(FUENTE_UI, 9, "bold"),
                                       padx=12, pady=4, state=tk.DISABLED)
         self.btn_cancelar.pack(side="right", padx=(12, 0))
 
@@ -233,17 +238,17 @@ class Aplicacion:
         marca = tk.Frame(self.sidebar, bg=COLOR_SIDEBAR)
         marca.pack(fill="x", padx=14, pady=(16, 12))
         tk.Label(marca, text="MENU", bg=COLOR_SIDEBAR, fg=COLOR_SUBTEXTO,
-                 font=("Segoe UI", 9, "bold"), anchor="w").pack(anchor="w")
+                 font=(FUENTE_UI, 9, "bold"), anchor="w").pack(anchor="w")
 
         for clave, texto in NAVEGACION:
             if clave == "_grupo":
                 tk.Label(self.sidebar, text=texto, bg=COLOR_SIDEBAR, fg=COLOR_SUBTEXTO,
-                         font=("Segoe UI", 8, "bold"), anchor="w").pack(
+                         font=(FUENTE_UI, 8, "bold"), anchor="w").pack(
                     fill="x", padx=18, pady=(12, 2))
                 continue
             lbl = tk.Label(self.sidebar, text=texto, bg=COLOR_SIDEBAR,
                            fg=COLOR_TEXTO if clave != "_salir" else "#f87171",
-                           font=("Segoe UI", 10), anchor="w", padx=18, pady=7,
+                           font=(FUENTE_UI, 10), anchor="w", padx=18, pady=7,
                            cursor="hand2")
             lbl.pack(fill="x")
             if clave == "_salir":
@@ -257,7 +262,7 @@ class Aplicacion:
             self._botones_sidebar[clave] = lbl
 
         pie = tk.Label(self.sidebar, text=f"v{constantes.VERSION_PROGRAMA}",
-                       bg=COLOR_SIDEBAR, fg=COLOR_SUBTEXTO, font=("Segoe UI", 8))
+                       bg=COLOR_SIDEBAR, fg=COLOR_SUBTEXTO, font=(FUENTE_UI, 8))
         pie.pack(side="bottom", pady=12)
 
         # --- area de contenido
@@ -268,13 +273,13 @@ class Aplicacion:
         marco = tk.Frame(self.root, bg=COLOR_FONDO)
         marco.pack(fill="x", padx=18, pady=(8, 14))
         tk.Label(marco, text="REGISTRO", bg=COLOR_FONDO, fg=COLOR_SUBTEXTO,
-                 font=("Segoe UI", 8, "bold"), anchor="w").pack(anchor="w")
+                 font=(FUENTE_UI, 8, "bold"), anchor="w").pack(anchor="w")
         caja = tk.Frame(marco, bg=COLOR_PANEL_2,
                         highlightbackground=COLOR_BORDE, highlightthickness=1)
         caja.pack(fill="x")
         self.lista_log = tk.Listbox(caja, bg=COLOR_PANEL_2, fg=COLOR_LOG_INFO,
                                     relief="flat", highlightthickness=0,
-                                    height=6, font=("Consolas", 9),
+                                    height=6, font=(FUENTE_MONO, 9),
                                     selectbackground=COLOR_PANEL, selectforeground=COLOR_TEXTO)
         scroll = tk.Scrollbar(caja, orient="vertical", command=self.lista_log.yview)
         self.lista_log.configure(yscrollcommand=scroll.set)
@@ -335,7 +340,7 @@ class Aplicacion:
             activo = clave == self.panel_actual
             lbl.config(bg=COLOR_SIDEBAR_ACTIVO if activo else COLOR_SIDEBAR,
                        fg=COLOR_ACCENTO if activo else COLOR_TEXTO,
-                       font=("Segoe UI", 10, "bold" if activo else "normal"))
+                       font=(FUENTE_UI, 10, "bold" if activo else "normal"))
 
     # ==================================================================
     #  registro y estado

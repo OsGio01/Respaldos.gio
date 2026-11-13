@@ -12,7 +12,7 @@ import subprocess, sys, os, time
 from core import constantes
 
 V = constantes.VERSION_PROGRAMA
-exe = os.path.join(RAIZ, "Ejecutables", f"Respaldosterminal{V}", f"Respaldos.gio-Terminal{V}.exe")
+exe = os.path.join(RAIZ, "Ejecutables", "windows", f"Respaldos.gio-Terminal{V}.exe")
 cwd = os.path.dirname(exe)
 
 proc = subprocess.Popen([exe], cwd=cwd, stdin=subprocess.PIPE,

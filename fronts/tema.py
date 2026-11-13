@@ -5,6 +5,14 @@
 Tokens de color y medidas compartidos por el HUD, los paneles y el front
 movil. Toda la logica de negocio vive en `core`; aqui solo hay presentacion.
 """
+from core.plataforma import familia_mono, familia_ui
+
+# --- fuentes ---------------------------------------------------------------
+# Tk no trae "Segoe UI" fuera de Windows: si se pide una fuente que no existe,
+# Tk la sustituye por la default y el texto se ve mas grande y desproporcionado.
+# Estas dos constantes eligen la primera familia que exista en el sistema.
+FUENTE_UI = familia_ui()
+FUENTE_MONO = familia_mono()
 
 # --- base -----------------------------------------------------------------
 COLOR_FONDO = "#0a0e1a"        # fondo principal

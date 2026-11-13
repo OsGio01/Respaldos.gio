@@ -84,14 +84,16 @@ from core import constantes
 V = constantes.VERSION_PROGRAMA
 
 EXES = [
-    os.path.join(RAIZ, "Ejecutables", f"RespaldosInterface{V}", f"Respaldos.Gio{V}.exe"),
-    os.path.join(RAIZ, "Ejecutables", f"Respaldosterminal{V}", f"Respaldos.gio-Terminal{V}.exe"),
-    os.path.join(RAIZ, "Ejecutables", f"Respaldoscelular{V}", f"RespaldosCelular{V}.exe"),
+    os.path.join(RAIZ, "Ejecutables", "windows", f"Respaldos.Gio{V}.exe"),
+    os.path.join(RAIZ, "Ejecutables", "windows", f"Respaldos.gio-Terminal{V}.exe"),
 ]
 
 fallos = 0
 for ruta in EXES:
-    nombre = ruta.split("\\")[-1]
+    if not os.path.exists(ruta):
+        print(f"SKIP {ruta.split(os.sep)[-1]}: no esta compilado")
+        continue
+    nombre = os.path.basename(ruta)
     tams = mejores_tamanos(ruta)
     hd = any(t >= 128 for t in tams)
     print(f"{'OK  ' if hd else 'FAIL'} {nombre}: tamanos reales {tams}")

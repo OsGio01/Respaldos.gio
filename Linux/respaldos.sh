@@ -57,14 +57,42 @@ _xdg() {
     printf "%s" "$valor"
 }
 
+# Carpeta compartida en Android (Termux). Requiere 'termux-setup-storage'.
+_android_base() {
+    for c in /sdcard /storage/emulated/0 /storage/self/primary; do
+        if [ -d "$c" ]; then
+            printf "%s" "$c"
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Imprime una linea por carpeta: "Etiqueta|ruta"
 # Si esta definida RESPALDOS_GIO_FUENTES se usa esa lista en lugar de detectar
 # las carpetas del usuario. Formato: "Etiqueta|ruta;Etiqueta|ruta"
+#
+# La lista es bilingue (espanol e ingles) y trae los nombres CON tilde: en un
+# Linux en espanol las carpetas son "Musica", "Imagenes" y "Videos" con tilde,
+# y sin ellas el script no copia nada.
 carpetas_usuario() {
     if [ -n "${RESPALDOS_GIO_FUENTES:-}" ]; then
         printf '%s\n' "$RESPALDOS_GIO_FUENTES" | tr ';' '\n'
         return 0
     fi
+
+    # Android: el almacenamiento compartido no cuelga del home.
+    local android
+    if android="$(_android_base)"; then
+        _agregar "DCIM" "$android/DCIM"
+        _agregar "Descargas" "$android/Download"
+        _agregar "Documentos" "$android/Documents"
+        _agregar "Peliculas" "$android/Movies"
+        _agregar "Musica" "$android/Music"
+        _agregar "Imagenes" "$android/Pictures"
+        return 0
+    fi
+
     local base="$HOME"
     if [ -f "$HOME/.config/user-dirs.dirs" ]; then
         _agregar "Documentos" "$(_xdg XDG_DOCUMENTS_DIR)"
@@ -73,14 +101,27 @@ carpetas_usuario() {
         _agregar "Imagenes" "$(_xdg XDG_PICTURES_DIR)"
         _agregar "Musica" "$(_xdg XDG_MUSIC_DIR)"
         _agregar "Videos" "$(_xdg XDG_VIDEOS_DIR)"
-    else
-        _agregar "Documentos" "$base/Documents"
-        _agregar "Escritorio" "$base/Desktop"
-        _agregar "Descargas" "$base/Downloads"
-        _agregar "Imagenes" "$base/Pictures"
-        _agregar "Musica" "$base/Music"
-        _agregar "Videos" "$base/Videos"
     fi
+
+    # Sin user-dirs.dirs (o como complemento): nombres en espanol e ingles,
+    # con y sin tilde. _agregar ignora los que no existan.
+    _agregar "Documentos" "$base/Documents"
+    _agregar "Escritorio" "$base/Escritorio"
+    _agregar "Descargas" "$base/Descargas"
+    _agregar "Imagenes" "$base/Imagenes"
+    _agregar "Imagenes" "$base/Imágenes"
+    _agregar "Musica" "$base/Musica"
+    _agregar "Musica" "$base/Música"
+    _agregar "Videos" "$base/Videos"
+    _agregar "Videos" "$base/Vídeos"
+    _agregar "Documents" "$base/Documents"
+    _agregar "Desktop" "$base/Desktop"
+    _agregar "Downloads" "$base/Downloads"
+    _agregar "Pictures" "$base/Pictures"
+    _agregar "Music" "$base/Music"
+    _agregar "Videos" "$base/Videos"
+    _agregar "Public" "$base/Public"
+    _agregar "Plantillas" "$base/Plantillas"
 }
 
 # ---------------------------------------------------------------- estado

@@ -20,3 +20,13 @@ respaldos.fuentes.tmp
 
 # Respaldos generados en caliente
 Respaldos/
+
+# Datos que el programa escribe en la carpeta de datos del sistema.
+# En el repositorio quedan los de ejemplo, pero estos son de la maquina.
+/core/config.json
+/core/config/
+/core/estados/
+/core/estados_respaldo.json
+/core/respaldos_generados.json
+/core/ultimo_respaldo.txt
+/core/rutas_respaldo.txt

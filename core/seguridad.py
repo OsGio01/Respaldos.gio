@@ -4,12 +4,18 @@
 import hashlib
 import hmac
 import os
+import platform
 import socket
 import ssl
 import subprocess
 from typing import Optional
 
 from core import constantes, persistencia
+
+try:
+    import psutil
+except ImportError:
+    psutil = None  # en Termux y sistemas minimos puede no estar disponible
 
 
 def _sid_usuario_actual() -> str:

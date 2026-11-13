@@ -54,6 +54,9 @@ _agregar() {
 # Imprime una linea por carpeta: "Etiqueta|ruta"
 # Si esta definida RESPALDOS_GIO_FUENTES se usa esa lista en lugar de detectar
 # las carpetas del usuario. Formato: "Etiqueta|ruta;Etiqueta|ruta"
+#
+# macOS usa "Movies" (no "Videos") y sus carpetas van en ingles, pero se
+# prueban tambien los nombres en espanol por si el usuario los creo a mano.
 carpetas_usuario() {
     if [ -n "${RESPALDOS_GIO_FUENTES:-}" ]; then
         printf '%s\n' "$RESPALDOS_GIO_FUENTES" | tr ';' '\n'
@@ -66,6 +69,14 @@ carpetas_usuario() {
     _agregar "Imagenes" "$base/Pictures"
     _agregar "Musica" "$base/Music"
     _agregar "Videos" "$base/Movies"
+    _agregar "Documentos" "$base/Documentos"
+    _agregar "Escritorio" "$base/Escritorio"
+    _agregar "Descargas" "$base/Descargas"
+    _agregar "Imagenes" "$base/Imagenes"
+    _agregar "Imagenes" "$base/Imágenes"
+    _agregar "Musica" "$base/Musica"
+    _agregar "Musica" "$base/Música"
+    _agregar "Videos" "$base/Vídeos"
 }
 
 Carpetas-Usuario-Archivo() {

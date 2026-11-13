@@ -13,7 +13,7 @@ import ctypes.wintypes as wt
 from core import constantes
 
 V = constantes.VERSION_PROGRAMA
-exe = os.path.join(RAIZ, "Ejecutables", f"RespaldosInterface{V}", f"Respaldos.Gio{V}.exe")
+exe = os.path.join(RAIZ, "Ejecutables", "windows", f"Respaldos.Gio{V}.exe")
 cwd = os.path.dirname(exe)
 TITULO = "Respaldos.Gio"
 
